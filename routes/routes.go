@@ -28,6 +28,9 @@ func SetupRoutes(s3Service *services.S3Service, videoService *services.VideoServ
 	router.Static("/static", "./public")
 	router.LoadHTMLGlob("public/*.html")
 
+	// Serve uploaded files
+	router.Static("/uploads", "./uploads")
+
 	// Serve index page
 	router.GET("/", func(c *gin.Context) {
 		c.HTML(200, "index.html", nil)
@@ -41,6 +44,9 @@ func SetupRoutes(s3Service *services.S3Service, videoService *services.VideoServ
 	{
 		// Media upload
 		api.POST("/upload", mediaHandler.UploadMedia)
+		
+		// Local upload (for testing without S3)
+		api.POST("/upload-local", mediaHandler.UploadMediaLocal)
 		
 		// Media management
 		api.DELETE("/media/:id", mediaHandler.DeleteMedia)

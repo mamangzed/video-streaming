@@ -24,7 +24,7 @@ var AppConfig *Config
 func LoadConfig() {
 	err := godotenv.Load()
 	if err != nil {
-		log.Println("No .env file found, using system environment variables")
+		log.Println("⚠️  No .env file found, using system environment variables")
 	}
 
 	AppConfig = &Config{
@@ -38,9 +38,13 @@ func LoadConfig() {
 		EnableVideoProcessing: getEnvBool("ENABLE_VIDEO_PROCESSING", true),
 	}
 
-	// Validate required fields
+	// Validate required fields - but don't fail, just warn
 	if AppConfig.AWSAccessKeyID == "" || AppConfig.AWSSecretAccessKey == "" || AppConfig.AWSS3Bucket == "" {
-		log.Fatal("AWS credentials and bucket name are required")
+		log.Println("⚠️  AWS credentials not configured. Running in local mode.")
+		log.Println("   Set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_S3_BUCKET for S3 functionality")
+		log.Println("   Use /api/v1/upload-local for testing without S3")
+	} else {
+		log.Println("✅ AWS credentials configured")
 	}
 }
 
@@ -82,4 +86,4 @@ func parseFileSize(sizeStr string) int64 {
 	default:
 		return 100 * 1024 * 1024 // Default 100MB
 	}
-} 
+}
