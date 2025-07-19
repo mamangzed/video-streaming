@@ -393,7 +393,7 @@ func (v *VideoService) createOptimizedVideoVariant(inputPath, mediaID string, qu
 		"-strict", "-2",             // Allow experimental codecs
 		"-b:v", quality.Bitrate,     // Video bitrate
 		"-b:a", "192k",              // Audio bitrate
-		"-vf", fmt.Sprintf("scale=%d:%d", quality.Width, quality.Height), // Scale to target resolution
+		"-vf", fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease", quality.Width, quality.Height), // Scale with aspect ratio preservation
 		"-preset", "medium",         // Encoding preset (balance between speed and quality)
 		"-crf", "23",                // Constant Rate Factor (quality setting)
 		"-movflags", "+faststart",   // Optimize for web streaming
