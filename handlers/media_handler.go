@@ -91,7 +91,7 @@ func (h *MediaHandler) UploadMedia(c *gin.Context) {
 	key := fmt.Sprintf("media/%s/%s", mediaID, file.Filename)
 	log.Printf("☁️ Uploading to S3: %s", key)
 	
-	uploadedFile, err := h.s3Service.UploadFile(file, key)
+	uploadedURL, err := h.s3Service.UploadFile(file, key)
 	if err != nil {
 		log.Printf("❌ S3 upload failed: %v", err)
 		c.JSON(http.StatusInternalServerError, models.UploadResponse{
@@ -101,7 +101,7 @@ func (h *MediaHandler) UploadMedia(c *gin.Context) {
 		return
 	}
 
-	log.Printf("✅ S3 upload successful: %s", uploadedFile.URL)
+	log.Printf("✅ S3 upload successful: %s", uploadedURL)
 
 	// Create media object
 	media := &models.Media{
@@ -111,7 +111,7 @@ func (h *MediaHandler) UploadMedia(c *gin.Context) {
 		MediaType:    mediaType,
 		MimeType:     contentType,
 		Size:         file.Size,
-		URL:          uploadedFile.URL,
+		URL:          uploadedURL,
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
 	}

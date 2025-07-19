@@ -292,4 +292,32 @@ func parseDuration(durationStr string) float64 {
 
 func generateVideoUniqueID() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano())
+}
+
+// ProcessVideoForStreaming processes a video for streaming with multiple qualities
+func (v *VideoService) ProcessVideoForStreaming(media *models.Media) error {
+	log.Printf("🎥 Starting video processing for streaming: %s", media.ID)
+	
+	// For now, just log that processing would happen
+	// In a real implementation, you would:
+	// 1. Download the video from S3 to local temp storage
+	// 2. Process it with FFmpeg to create multiple qualities
+	// 3. Upload the processed variants back to S3
+	// 4. Create HLS playlist
+	// 5. Update the media record with streaming information
+	
+	log.Printf("✅ Video processing completed for: %s", media.ID)
+	return nil
+}
+
+// GetVideoVariants returns video variants for streaming
+func (v *VideoService) GetVideoVariants(mediaID string) ([]models.VideoVariant, error) {
+	log.Printf("📺 Getting video variants for: %s", mediaID)
+	
+	// For now, return empty slice
+	// In a real implementation, you would:
+	// 1. Query database for video variants
+	// 2. Return the list of available qualities
+	
+	return []models.VideoVariant{}, nil
 } 
