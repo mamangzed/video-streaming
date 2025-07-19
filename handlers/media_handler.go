@@ -345,15 +345,33 @@ func (h *MediaHandler) StreamVideo(c *gin.Context) {
 		}
 	}
 	
-	// If no filename provided or file not found, try common video extensions
-	extensions := []string{".mp4", ".avi", ".mov", ".mkv", ".webm"}
-	for _, ext := range extensions {
-		s3Key := fmt.Sprintf("media/%s%s", mediaID, ext)
-		log.Printf("🔍 Trying S3 key: %s", s3Key)
-		
-		if exists, _ := h.s3Service.FileExists(s3Key); exists {
-			log.Printf("✅ Found file: %s", s3Key)
-			if err := h.s3Service.StreamFile(c.Writer, c.Request, s3Key); err != nil {
+	// If no filename provided or file not found, try to find the actual file
+	// Based on the upload pattern, the file is stored as: "media/{mediaID}/{filename}"
+	// Let's try to list objects in the media/{mediaID}/ prefix to find the actual file
+	
+	// Try to list objects in the media/{mediaID}/ directory
+	objects, err := h.s3Service.ListObjects(fmt.Sprintf("media/%s/", mediaID))
+	if err != nil {
+		log.Printf("❌ Failed to list objects: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Failed to find video file",
+		})
+		return
+	}
+	
+	// Look for video files
+	for _, obj := range objects {
+		log.Printf("🔍 Found object: %s", obj)
+		// Check if it's a video file
+		if strings.HasSuffix(strings.ToLower(obj), ".mp4") ||
+		   strings.HasSuffix(strings.ToLower(obj), ".avi") ||
+		   strings.HasSuffix(strings.ToLower(obj), ".mov") ||
+		   strings.HasSuffix(strings.ToLower(obj), ".mkv") ||
+		   strings.HasSuffix(strings.ToLower(obj), ".webm") {
+			
+			log.Printf("✅ Found video file: %s", obj)
+			if err := h.s3Service.StreamFile(c.Writer, c.Request, obj); err != nil {
 				log.Printf("❌ Failed to stream video: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"success": false,
@@ -361,7 +379,7 @@ func (h *MediaHandler) StreamVideo(c *gin.Context) {
 				})
 				return
 			}
-			log.Printf("✅ Video streamed successfully: %s", s3Key)
+			log.Printf("✅ Video streamed successfully: %s", obj)
 			return
 		}
 	}

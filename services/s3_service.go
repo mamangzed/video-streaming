@@ -213,4 +213,31 @@ func (s *S3Service) StreamFile(w http.ResponseWriter, r *http.Request, key strin
 	
 	log.Printf("✅ File streamed successfully: %s", key)
 	return nil
+}
+
+// ListObjects lists objects in S3 with the given prefix
+func (s *S3Service) ListObjects(prefix string) ([]string, error) {
+	log.Printf("📋 Listing objects with prefix: %s", prefix)
+	
+	var objects []string
+	
+	// List objects in S3
+	result, err := s.client.ListObjectsV2(context.TODO(), &s3.ListObjectsV2Input{
+		Bucket: aws.String(s.bucket),
+		Prefix: aws.String(prefix),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list objects: %v", err)
+	}
+	
+	// Extract object keys
+	for _, obj := range result.Contents {
+		if obj.Key != nil {
+			objects = append(objects, *obj.Key)
+			log.Printf("📄 Found object: %s", *obj.Key)
+		}
+	}
+	
+	log.Printf("✅ Listed %d objects", len(objects))
+	return objects, nil
 } 
