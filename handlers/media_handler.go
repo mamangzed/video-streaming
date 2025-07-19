@@ -350,8 +350,33 @@ func (h *MediaHandler) StreamVideo(c *gin.Context) {
 	}
 	
 	// If no filename provided or file not found, try to find the actual file
+	// First, try to find processed video variants in the videos/{quality}/ directory
+	// The processed videos are stored as: "videos/{quality}/{mediaID}_{quality}.mp4"
+	
+	// Try to find the specific quality variant
+	qualityVariantKey := fmt.Sprintf("videos/%s/%s_%s.mp4", quality, mediaID, quality)
+	log.Printf("🔍 Looking for quality variant: %s", qualityVariantKey)
+	
+	if exists, _ := h.s3Service.FileExists(qualityVariantKey); exists {
+		log.Printf("✅ Found quality variant: %s", qualityVariantKey)
+		if err := h.s3Service.StreamFile(c.Writer, c.Request, qualityVariantKey); err != nil {
+			log.Printf("❌ Failed to stream video: %v", err)
+			// Don't send JSON response if headers already written
+			if !c.Writer.Written() {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"message": "Failed to stream video",
+				})
+			}
+			return
+		}
+		log.Printf("✅ Video streamed successfully: %s", qualityVariantKey)
+		return
+	}
+	
+	// If quality variant not found, try to find the original video
 	// Based on the upload pattern, the file is stored as: "media/{mediaID}/{filename}"
-	// Let's try to list objects in the media/{mediaID}/ prefix to find the actual file
+	log.Printf("🔍 Quality variant not found, looking for original video...")
 	
 	// Try to list objects in the media/{mediaID}/ directory
 	objects, err := h.s3Service.ListObjects(fmt.Sprintf("media/%s/", mediaID))
@@ -374,13 +399,16 @@ func (h *MediaHandler) StreamVideo(c *gin.Context) {
 		   strings.HasSuffix(strings.ToLower(obj), ".mkv") ||
 		   strings.HasSuffix(strings.ToLower(obj), ".webm") {
 			
-			log.Printf("✅ Found video file: %s", obj)
+			log.Printf("✅ Found original video file: %s", obj)
 			if err := h.s3Service.StreamFile(c.Writer, c.Request, obj); err != nil {
 				log.Printf("❌ Failed to stream video: %v", err)
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"success": false,
-					"message": "Failed to stream video",
-				})
+				// Don't send JSON response if headers already written
+				if !c.Writer.Written() {
+					c.JSON(http.StatusInternalServerError, gin.H{
+						"success": false,
+						"message": "Failed to stream video",
+					})
+				}
 				return
 			}
 			log.Printf("✅ Video streamed successfully: %s", obj)

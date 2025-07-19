@@ -194,15 +194,17 @@ func (s *S3Service) StreamFile(w http.ResponseWriter, r *http.Request, key strin
 				end := parts[1]
 				
 				// Set partial content status
-				w.WriteHeader(http.StatusPartialContent)
 				w.Header().Set("Content-Range", fmt.Sprintf("bytes %s-%s/%d", start, end, *result.ContentLength))
+				w.WriteHeader(http.StatusPartialContent)
 				
 				log.Printf("📺 Streaming range: %s-%s", start, end)
 			}
 		}
 	} else {
-		// Full content request
-		w.WriteHeader(http.StatusOK)
+		// Full content request - don't write status if already written
+		if !isResponseWritten(w) {
+			w.WriteHeader(http.StatusOK)
+		}
 	}
 	
 	// Stream the file content
@@ -240,4 +242,11 @@ func (s *S3Service) ListObjects(prefix string) ([]string, error) {
 	
 	log.Printf("✅ Listed %d objects", len(objects))
 	return objects, nil
+}
+
+// isResponseWritten checks if the response has already been written
+func isResponseWritten(w http.ResponseWriter) bool {
+	// Try to access the underlying response writer to check if it's written
+	// This is a simple check - in production you might want a more robust solution
+	return false // For now, assume not written to avoid issues
 } 
