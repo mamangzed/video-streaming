@@ -193,6 +193,13 @@ func (s *S3Service) StreamFile(w http.ResponseWriter, r *http.Request, key strin
 				start := parts[0]
 				end := parts[1]
 				
+				// Handle incomplete range (e.g., "bytes=0-")
+				if end == "" {
+					// If no end specified, stream from start to end of file
+					end = fmt.Sprintf("%d", *result.ContentLength-1)
+					log.Printf("📺 Incomplete range, streaming from %s to end (%s)", start, end)
+				}
+				
 				// Set partial content status
 				w.Header().Set("Content-Range", fmt.Sprintf("bytes %s-%s/%d", start, end, *result.ContentLength))
 				w.WriteHeader(http.StatusPartialContent)
@@ -214,7 +221,7 @@ func (s *S3Service) StreamFile(w http.ResponseWriter, r *http.Request, key strin
 		if strings.Contains(err.Error(), "broken pipe") || 
 		   strings.Contains(err.Error(), "connection reset") ||
 		   strings.Contains(err.Error(), "write: broken pipe") {
-			log.Printf("📺 Client disconnected during streaming (normal): %v", err)
+			// Don't log broken pipe errors - they're normal for video streaming
 			return nil // Don't treat as error
 		}
 		return fmt.Errorf("failed to stream file content: %v", err)
