@@ -321,25 +321,57 @@ func (h *MediaHandler) StreamVideo(c *gin.Context) {
 	// 1. Look up the specific quality variant in database
 	// 2. Stream the appropriate video file for that quality
 	
-	// Construct the S3 key based on the upload pattern we used
-	// The key pattern was: "media/{mediaID}/{filename}"
-	// For now, we'll use a simple pattern: "media/{mediaID}/video.mp4"
-	// In a real implementation, you would query a database to get the actual filename
-	s3Key := fmt.Sprintf("media/%s/video.mp4", mediaID)
+	// Try to find the video file in S3 by trying different patterns
+	// The upload pattern was: "media/{mediaID}/{filename}"
+	// Let's try to find the actual file
 	
-	log.Printf("📺 Streaming from S3 key: %s", s3Key)
-	
-	// Stream the video from S3
-	if err := h.s3Service.StreamFile(c.Writer, c.Request, s3Key); err != nil {
-		log.Printf("❌ Failed to stream video: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Failed to stream video",
-		})
-		return
+	// First, try to get filename from query parameter
+	filename := c.Query("filename")
+	if filename != "" {
+		s3Key := fmt.Sprintf("media/%s/%s", mediaID, filename)
+		log.Printf("📺 Trying S3 key with filename: %s", s3Key)
+		
+		if exists, _ := h.s3Service.FileExists(s3Key); exists {
+			if err := h.s3Service.StreamFile(c.Writer, c.Request, s3Key); err != nil {
+				log.Printf("❌ Failed to stream video: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"message": "Failed to stream video",
+				})
+				return
+			}
+			log.Printf("✅ Video streamed successfully: %s", s3Key)
+			return
+		}
 	}
 	
-	log.Printf("✅ Video streamed successfully: %s", s3Key)
+	// If no filename provided or file not found, try common video extensions
+	extensions := []string{".mp4", ".avi", ".mov", ".mkv", ".webm"}
+	for _, ext := range extensions {
+		s3Key := fmt.Sprintf("media/%s%s", mediaID, ext)
+		log.Printf("🔍 Trying S3 key: %s", s3Key)
+		
+		if exists, _ := h.s3Service.FileExists(s3Key); exists {
+			log.Printf("✅ Found file: %s", s3Key)
+			if err := h.s3Service.StreamFile(c.Writer, c.Request, s3Key); err != nil {
+				log.Printf("❌ Failed to stream video: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"message": "Failed to stream video",
+				})
+				return
+			}
+			log.Printf("✅ Video streamed successfully: %s", s3Key)
+			return
+		}
+	}
+	
+	// If no file found, return error
+	log.Printf("❌ No video file found for media ID: %s", mediaID)
+	c.JSON(http.StatusNotFound, gin.H{
+		"success": false,
+		"message": "Video file not found. Please check the media ID or try uploading again.",
+	})
 }
 
 // GetThumbnail returns video thumbnail
