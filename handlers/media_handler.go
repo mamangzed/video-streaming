@@ -307,21 +307,39 @@ func (h *MediaHandler) StreamVideo(c *gin.Context) {
 	quality := c.Param("quality")
 	log.Printf("🎬 Streaming video: %s at quality: %s", mediaID, quality)
 
-	// For now, redirect to the original video URL
-	// In a real implementation, you would:
-	// 1. Look up the specific quality variant
-	// 2. Return the appropriate video URL
+	if h.s3Service == nil {
+		log.Printf("❌ S3 service not available")
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"message": "S3 service not available",
+		})
+		return
+	}
+
+	// For now, we'll stream the original video since we haven't implemented
+	// multi-quality processing yet. In a real implementation, you would:
+	// 1. Look up the specific quality variant in database
+	// 2. Stream the appropriate video file for that quality
 	
-	// Get the original video URL from the media ID
-	// This is a simplified implementation - in production you'd query a database
-	originalURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/media/%s", 
-		config.AppConfig.AWSS3Bucket, config.AppConfig.AWSRegion, mediaID)
+	// Construct the S3 key based on the upload pattern we used
+	// The key pattern was: "media/{mediaID}/{filename}"
+	// For now, we'll use a simple pattern: "media/{mediaID}/video.mp4"
+	// In a real implementation, you would query a database to get the actual filename
+	s3Key := fmt.Sprintf("media/%s/video.mp4", mediaID)
 	
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": fmt.Sprintf("Video stream for %s at %s quality", mediaID, quality),
-		"url":     originalURL,
-	})
+	log.Printf("📺 Streaming from S3 key: %s", s3Key)
+	
+	// Stream the video from S3
+	if err := h.s3Service.StreamFile(c.Writer, c.Request, s3Key); err != nil {
+		log.Printf("❌ Failed to stream video: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Failed to stream video",
+		})
+		return
+	}
+	
+	log.Printf("✅ Video streamed successfully: %s", s3Key)
 }
 
 // GetThumbnail returns video thumbnail

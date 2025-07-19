@@ -155,4 +155,60 @@ func (s *S3Service) FileExists(key string) (bool, error) {
 
 func generateUniqueID() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano())
+}
+
+// StreamFile streams a file from S3 to the HTTP response
+func (s *S3Service) StreamFile(w http.ResponseWriter, r *http.Request, key string) error {
+	log.Printf("📺 Streaming file from S3: %s", key)
+	
+	// Get the object from S3
+	result, err := s.client.GetObject(context.TODO(), &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get object from S3: %v", err)
+	}
+	defer result.Body.Close()
+	
+	// Set appropriate headers for video streaming
+	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("Accept-Ranges", "bytes")
+	
+	// Get file size
+	if result.ContentLength != nil {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", *result.ContentLength))
+	}
+	
+	// Handle Range requests for video seeking
+	rangeHeader := r.Header.Get("Range")
+	if rangeHeader != "" {
+		// Parse range header (e.g., "bytes=0-1023")
+		if strings.HasPrefix(rangeHeader, "bytes=") {
+			rangeStr := strings.TrimPrefix(rangeHeader, "bytes=")
+			parts := strings.Split(rangeStr, "-")
+			if len(parts) == 2 {
+				start := parts[0]
+				end := parts[1]
+				
+				// Set partial content status
+				w.WriteHeader(http.StatusPartialContent)
+				w.Header().Set("Content-Range", fmt.Sprintf("bytes %s-%s/%d", start, end, *result.ContentLength))
+				
+				log.Printf("📺 Streaming range: %s-%s", start, end)
+			}
+		}
+	} else {
+		// Full content request
+		w.WriteHeader(http.StatusOK)
+	}
+	
+	// Stream the file content
+	_, err = io.Copy(w, result.Body)
+	if err != nil {
+		return fmt.Errorf("failed to stream file content: %v", err)
+	}
+	
+	log.Printf("✅ File streamed successfully: %s", key)
+	return nil
 } 

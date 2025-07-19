@@ -346,20 +346,12 @@
 
         async function streamVideo(mediaId, quality) {
             try {
-                const response = await fetch(`/api/v1/media/${mediaId}/stream/${quality}`);
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.success) {
-                        const videoPlayer = document.getElementById('videoPlayer');
-                        videoPlayer.src = data.url;
-                        videoPlayer.style.display = 'block';
-                        videoPlayer.play();
-                    } else {
-                        alert('Video not available in this quality yet. Processing may still be in progress.');
-                    }
-                } else {
-                    alert('Video not available in this quality yet. Processing may still be in progress.');
-                }
+                // Create streaming URL
+                const streamUrl = `/api/v1/media/${mediaId}/stream/${quality}`;
+                const videoPlayer = document.getElementById('videoPlayer');
+                videoPlayer.src = streamUrl;
+                videoPlayer.style.display = 'block';
+                videoPlayer.play();
             } catch (error) {
                 alert('Failed to load video: ' + error.message);
             }
