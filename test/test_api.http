@@ -1,0 +1,49 @@
+### API S3 Test Collection
+
+### 1. Health Check
+GET http://localhost:8080/health
+
+### 2. Upload Image
+POST http://localhost:8080/api/v1/upload
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="file"; filename="test-image.jpg"
+Content-Type: image/jpeg
+
+< ./test-files/test-image.jpg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### 3. Upload Video
+POST http://localhost:8080/api/v1/upload
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="file"; filename="test-video.mp4"
+Content-Type: video/mp4
+
+< ./test-files/test-video.mp4
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### 4. Get Video Stream Info (replace {media-id} with actual ID)
+GET http://localhost:8080/api/v1/media/{media-id}/stream
+
+### 5. Stream Video 720p (replace {media-id} with actual ID)
+GET http://localhost:8080/api/v1/media/{media-id}/stream/720p
+
+### 6. Get Thumbnail (replace {media-id} with actual ID)
+GET http://localhost:8080/api/v1/media/{media-id}/thumbnail
+
+### 7. Delete Media (replace {media-id} with actual ID)
+DELETE http://localhost:8080/api/v1/media/{media-id}
+
+### 8. Test with cURL commands
+
+# Upload file
+# curl -X POST http://localhost:8080/api/v1/upload -F "file=@/path/to/your/file.mp4"
+
+# Get stream info
+# curl http://localhost:8080/api/v1/media/{media-id}/stream
+
+# Delete file
+# curl -X DELETE http://localhost:8080/api/v1/media/{media-id} 

@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API S3 - File Upload</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            font-weight: 300;
+        }
+
+        .upload-area {
+            border: 3px dashed #ddd;
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 30px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .upload-area:hover {
+            border-color: #667eea;
+            background-color: #f8f9ff;
+        }
+
+        .upload-area.dragover {
+            border-color: #667eea;
+            background-color: #f0f4ff;
+        }
+
+        .upload-icon {
+            font-size: 4em;
+            color: #667eea;
+            margin-bottom: 20px;
+        }
+
+        .upload-text {
+            font-size: 1.2em;
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .upload-hint {
+            font-size: 0.9em;
+            color: #999;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 25px;
+            font-size: 1.1em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .progress {
+            width: 100%;
+            height: 10px;
+            background-color: #f0f0f0;
+            border-radius: 5px;
+            overflow: hidden;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .result {
+            margin-top: 20px;
+            padding: 20px;
+            border-radius: 10px;
+            display: none;
+        }
+
+        .result.success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+
+        .result.error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+
+        .file-info {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 15px;
+        }
+
+        .file-info h3 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .file-info p {
+            margin: 5px 0;
+            color: #666;
+        }
+
+        .video-player {
+            width: 100%;
+            max-width: 100%;
+            border-radius: 10px;
+            margin-top: 15px;
+        }
+
+        .quality-selector {
+            margin-top: 15px;
+        }
+
+        .quality-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 15px;
+            margin: 5px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.3s ease;
+        }
+
+        .quality-btn:hover {
+            background: #5a6fd8;
+            transform: translateY(-1px);
+        }
+
+        .thumbnail {
+            max-width: 200px;
+            border-radius: 10px;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📁 API S3 Upload</h1>
+        
+        <div class="upload-area" id="uploadArea">
+            <div class="upload-icon">📤</div>
+            <div class="upload-text">Drag & Drop files here</div>
+            <div class="upload-hint">or click to browse</div>
+            <input type="file" id="fileInput" accept="image/*,video/*">
+        </div>
+
+        <button class="btn" id="uploadBtn" disabled>Upload File</button>
+        
+        <div class="progress" id="progress">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+
+        <div class="result" id="result"></div>
+    </div>
+
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const progress = document.getElementById('progress');
+        const progressBar = document.getElementById('progressBar');
+        const result = document.getElementById('result');
+
+        let selectedFile = null;
+
+        // Drag and drop functionality
+        uploadArea.addEventListener('click', () => fileInput.click());
+        
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileSelect(files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileSelect(e.target.files[0]);
+            }
+        });
+
+        function handleFileSelect(file) {
+            selectedFile = file;
+            uploadBtn.disabled = false;
+            
+            // Update upload area text
+            const uploadText = uploadArea.querySelector('.upload-text');
+            uploadText.textContent = `Selected: ${file.name}`;
+            
+            const uploadHint = uploadArea.querySelector('.upload-hint');
+            uploadHint.textContent = `Size: ${formatFileSize(file.size)}`;
+        }
+
+        uploadBtn.addEventListener('click', uploadFile);
+
+        async function uploadFile() {
+            if (!selectedFile) return;
+
+            uploadBtn.disabled = true;
+            progress.style.display = 'block';
+            result.style.display = 'none';
+
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+
+            try {
+                const response = await fetch('/api/v1/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showResult(data, 'success');
+                    if (data.media.media_type === 'video') {
+                        showVideoInfo(data.media);
+                    }
+                } else {
+                    showResult(data, 'error');
+                }
+            } catch (error) {
+                showResult({ message: 'Upload failed: ' + error.message }, 'error');
+            } finally {
+                uploadBtn.disabled = false;
+                progress.style.display = 'none';
+            }
+        }
+
+        function showResult(data, type) {
+            result.className = `result ${type}`;
+            result.style.display = 'block';
+            
+            if (type === 'success') {
+                result.innerHTML = `
+                    <h3>✅ Upload Successful!</h3>
+                    <p><strong>Message:</strong> ${data.message}</p>
+                    <div class="file-info">
+                        <h3>File Information:</h3>
+                        <p><strong>ID:</strong> ${data.media.id}</p>
+                        <p><strong>Name:</strong> ${data.media.original_name}</p>
+                        <p><strong>Type:</strong> ${data.media.media_type}</p>
+                        <p><strong>Size:</strong> ${formatFileSize(data.media.size)}</p>
+                        <p><strong>URL:</strong> <a href="${data.media.url}" target="_blank">View File</a></p>
+                    </div>
+                `;
+            } else {
+                result.innerHTML = `
+                    <h3>❌ Upload Failed</h3>
+                    <p><strong>Error:</strong> ${data.message}</p>
+                `;
+            }
+        }
+
+        function showVideoInfo(media) {
+            const videoInfo = document.createElement('div');
+            videoInfo.className = 'file-info';
+            videoInfo.innerHTML = `
+                <h3>🎥 Video Information</h3>
+                <p><strong>Duration:</strong> ${media.duration || 'Processing...'} seconds</p>
+                <p><strong>Resolution:</strong> ${media.width || 'Processing...'}x${media.height || 'Processing...'}</p>
+                ${media.thumbnail_url ? `<img src="${media.thumbnail_url}" alt="Thumbnail" class="thumbnail">` : ''}
+                <div class="quality-selector">
+                    <h4>Available Qualities:</h4>
+                    <button class="quality-btn" onclick="streamVideo('${media.id}', '360p')">360p</button>
+                    <button class="quality-btn" onclick="streamVideo('${media.id}', '720p')">720p</button>
+                    <button class="quality-btn" onclick="streamVideo('${media.id}', '1080p')">1080p</button>
+                </div>
+                <video controls class="video-player" id="videoPlayer" style="display: none;">
+                    Your browser does not support the video tag.
+                </video>
+            `;
+            result.appendChild(videoInfo);
+        }
+
+        async function streamVideo(mediaId, quality) {
+            try {
+                const response = await fetch(`/api/v1/media/${mediaId}/stream/${quality}`);
+                if (response.ok) {
+                    const videoUrl = response.url;
+                    const videoPlayer = document.getElementById('videoPlayer');
+                    videoPlayer.src = videoUrl;
+                    videoPlayer.style.display = 'block';
+                    videoPlayer.play();
+                } else {
+                    alert('Video not available in this quality yet. Processing may still be in progress.');
+                }
+            } catch (error) {
+                alert('Failed to load video: ' + error.message);
+            }
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+    </script>
+</body>
+</html> 

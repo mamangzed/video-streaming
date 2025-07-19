@@ -1,0 +1,153 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-s3
+  labels:
+    app: api-s3
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: api-s3
+  template:
+    metadata:
+      labels:
+        app: api-s3
+    spec:
+      containers:
+      - name: api-s3
+        image: your-registry.com/api-s3:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: AWS_REGION
+          valueFrom:
+            secretKeyRef:
+              name: api-s3-secrets
+              key: aws-region
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: api-s3-secrets
+              key: aws-access-key-id
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: api-s3-secrets
+              key: aws-secret-access-key
+        - name: AWS_S3_BUCKET
+          valueFrom:
+            secretKeyRef:
+              name: api-s3-secrets
+              key: aws-s3-bucket
+        - name: PORT
+          value: "8080"
+        - name: MAX_FILE_SIZE
+          value: "100MB"
+        - name: FFMPEG_PATH
+          value: "/usr/bin/ffmpeg"
+        - name: ENABLE_VIDEO_PROCESSING
+          value: "true"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        volumeMounts:
+        - name: temp-storage
+          mountPath: /root/temp
+        - name: logs
+          mountPath: /var/log/api-s3
+      volumes:
+      - name: temp-storage
+        emptyDir: {}
+      - name: logs
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-s3-service
+spec:
+  selector:
+    app: api-s3
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-s3-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/client-max-body-size: "100m"
+spec:
+  tls:
+  - hosts:
+    - api-s3.your-domain.com
+    secretName: api-s3-tls
+  rules:
+  - host: api-s3.your-domain.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: api-s3-service
+            port:
+              number: 80
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: api-s3-secrets
+type: Opaque
+data:
+  aws-region: dXMtZWFzdC0x  # us-east-1
+  aws-access-key-id: eW91ci1hY2Nlc3Mta2V5LWlk  # your-access-key-id
+  aws-secret-access-key: eW91ci1zZWNyZXQta2V5  # your-secret-key
+  aws-s3-bucket: eW91ci1idWNrZXQtbmFtZQ==  # your-bucket-name
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-s3-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-s3
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80 
