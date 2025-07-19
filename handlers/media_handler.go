@@ -210,15 +210,8 @@ func (h *MediaHandler) UploadMedia(c *gin.Context) {
 		UpdatedAt:    time.Now(),
 	}
 
-	// If it's a video, process it with FFmpeg for optimal streaming
-	if mediaType == models.MediaTypeVideo {
-		log.Printf("🎥 Starting video processing with FFmpeg...")
-		go func() {
-			if err := h.videoService.ProcessVideoForStreaming(media); err != nil {
-				log.Printf("❌ Video processing failed: %v", err)
-			}
-		}()
-	}
+	// Video processing is now done before upload, so no need for background processing
+	// The video is already converted to MP4 format
 
 	log.Printf("✅ Upload completed successfully: %s", media.URL)
 
@@ -477,6 +470,7 @@ func (h *MediaHandler) StreamVideo(c *gin.Context) {
 	}
 	
 	// Try to find the optimized video file (processed with FFmpeg)
+	// The processed video is stored as: "media/{mediaID}/{mediaID}_optimized.mp4"
 	optimizedKey := fmt.Sprintf("media/%s/%s_optimized.mp4", mediaID, mediaID)
 	log.Printf("🔍 Looking for optimized video: %s", optimizedKey)
 	
@@ -520,17 +514,69 @@ func (h *MediaHandler) StreamVideo(c *gin.Context) {
 		return
 	}
 	
-	// Look for video files
+	// Look for video files (prioritize MP4 files)
 	for _, obj := range objects {
 		log.Printf("🔍 Found object: %s", obj)
-		// Check if it's a video file
-		if strings.HasSuffix(strings.ToLower(obj), ".mp4") ||
-		   strings.HasSuffix(strings.ToLower(obj), ".avi") ||
+		
+		// First, look for optimized MP4 files
+		if strings.HasSuffix(strings.ToLower(obj), "_optimized.mp4") {
+			log.Printf("✅ Found optimized MP4 file: %s", obj)
+			if err := h.s3Service.StreamFile(c.Writer, c.Request, obj); err != nil {
+				// Check if it's a broken pipe error (normal for video streaming)
+				if strings.Contains(err.Error(), "broken pipe") || 
+				   strings.Contains(err.Error(), "connection reset") ||
+				   strings.Contains(err.Error(), "write: broken pipe") {
+					log.Printf("📺 Client disconnected during streaming (normal): %v", err)
+					return // Don't treat as error
+				}
+				
+				log.Printf("❌ Failed to stream video: %v", err)
+				// Don't send JSON response if headers already written
+				if !c.Writer.Written() {
+					c.JSON(http.StatusInternalServerError, gin.H{
+						"success": false,
+						"message": "Failed to stream video",
+					})
+				}
+				return
+			}
+			log.Printf("✅ Video streamed successfully: %s", obj)
+			return
+		}
+		
+		// Then look for any MP4 files
+		if strings.HasSuffix(strings.ToLower(obj), ".mp4") {
+			log.Printf("✅ Found MP4 file: %s", obj)
+			if err := h.s3Service.StreamFile(c.Writer, c.Request, obj); err != nil {
+				// Check if it's a broken pipe error (normal for video streaming)
+				if strings.Contains(err.Error(), "broken pipe") || 
+				   strings.Contains(err.Error(), "connection reset") ||
+				   strings.Contains(err.Error(), "write: broken pipe") {
+					log.Printf("📺 Client disconnected during streaming (normal): %v", err)
+					return // Don't treat as error
+				}
+				
+				log.Printf("❌ Failed to stream video: %v", err)
+				// Don't send JSON response if headers already written
+				if !c.Writer.Written() {
+					c.JSON(http.StatusInternalServerError, gin.H{
+						"success": false,
+						"message": "Failed to stream video",
+					})
+				}
+				return
+			}
+			log.Printf("✅ Video streamed successfully: %s", obj)
+			return
+		}
+		
+		// Finally, look for other video formats as fallback
+		if strings.HasSuffix(strings.ToLower(obj), ".avi") ||
 		   strings.HasSuffix(strings.ToLower(obj), ".mov") ||
 		   strings.HasSuffix(strings.ToLower(obj), ".mkv") ||
 		   strings.HasSuffix(strings.ToLower(obj), ".webm") {
 			
-			log.Printf("✅ Found original video file: %s", obj)
+			log.Printf("✅ Found other video file: %s", obj)
 			if err := h.s3Service.StreamFile(c.Writer, c.Request, obj); err != nil {
 				// Check if it's a broken pipe error (normal for video streaming)
 				if strings.Contains(err.Error(), "broken pipe") || 
