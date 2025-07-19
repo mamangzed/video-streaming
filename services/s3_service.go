@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"mime/multipart"
 	"path/filepath"
 	"strings"
@@ -148,7 +147,6 @@ func (s *S3Service) FileExists(key string) (bool, error) {
 
 	if err != nil {
 		// Check if it's a "not found" error
-		var noSuchKey *types.NoSuchKey
 		if strings.Contains(err.Error(), "NoSuchKey") {
 			return false, nil
 		}

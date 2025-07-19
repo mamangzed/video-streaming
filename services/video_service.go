@@ -1,9 +1,7 @@
 package services
 
 import (
-	"context"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/exec"
