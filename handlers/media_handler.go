@@ -90,6 +90,9 @@ func (h *MediaHandler) UploadMedia(c *gin.Context) {
 
 	// For videos, process with FFmpeg first before uploading
 	var uploadedURL string
+	var finalFilename string
+	var finalMimeType string
+	
 	if mediaType == models.MediaTypeVideo {
 		log.Printf("🎬 Processing video with FFmpeg before upload...")
 		
@@ -175,9 +178,9 @@ func (h *MediaHandler) UploadMedia(c *gin.Context) {
 			return
 		}
 		
-		// Update media object with processed file info
-		media.Filename = outputFilename
-		media.MimeType = "video/mp4"
+		// Set processed file info
+		finalFilename = outputFilename
+		finalMimeType = "video/mp4"
 		
 	} else {
 		// For non-video files, upload directly
@@ -193,6 +196,10 @@ func (h *MediaHandler) UploadMedia(c *gin.Context) {
 			})
 			return
 		}
+		
+		// Set original file info
+		finalFilename = file.Filename
+		finalMimeType = contentType
 	}
 
 	log.Printf("✅ S3 upload successful: %s", uploadedURL)
@@ -200,10 +207,10 @@ func (h *MediaHandler) UploadMedia(c *gin.Context) {
 	// Create media object
 	media := &models.Media{
 		ID:           mediaID,
-		Filename:     file.Filename,
+		Filename:     finalFilename,
 		OriginalName: file.Filename,
 		MediaType:    mediaType,
-		MimeType:     contentType,
+		MimeType:     finalMimeType,
 		Size:         file.Size,
 		URL:          uploadedURL,
 		CreatedAt:    time.Now(),
