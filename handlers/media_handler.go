@@ -116,10 +116,14 @@ func (h *MediaHandler) UploadMedia(c *gin.Context) {
 		UpdatedAt:    time.Now(),
 	}
 
-	// If it's a video, start processing for streaming
+	// If it's a video, process it with FFmpeg for optimal streaming
 	if mediaType == models.MediaTypeVideo {
-		log.Printf("🎥 Starting video processing for streaming...")
-		go h.videoService.ProcessVideoForStreaming(media)
+		log.Printf("🎥 Starting video processing with FFmpeg...")
+		go func() {
+			if err := h.videoService.ProcessVideoForStreaming(media); err != nil {
+				log.Printf("❌ Video processing failed: %v", err)
+			}
+		}()
 	}
 
 	log.Printf("✅ Upload completed successfully: %s", media.URL)

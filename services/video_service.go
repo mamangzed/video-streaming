@@ -1,7 +1,9 @@
 package services
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -12,6 +14,9 @@ import (
 
 	"api-s3/config"
 	"api-s3/models"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 type VideoService struct {
@@ -298,16 +303,147 @@ func generateVideoUniqueID() string {
 func (v *VideoService) ProcessVideoForStreaming(media *models.Media) error {
 	log.Printf("🎥 Starting video processing for streaming: %s", media.ID)
 	
-	// For now, just log that processing would happen
-	// In a real implementation, you would:
-	// 1. Download the video from S3 to local temp storage
-	// 2. Process it with FFmpeg to create multiple qualities
-	// 3. Upload the processed variants back to S3
-	// 4. Create HLS playlist
-	// 5. Update the media record with streaming information
+	// Create temp directory for processing
+	tempDir := "temp"
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		return fmt.Errorf("failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
 	
-	log.Printf("✅ Video processing completed for: %s", media.ID)
+	// Download video from S3 to local temp storage
+	localVideoPath := filepath.Join(tempDir, "original_video.mp4")
+	if err := v.downloadVideoFromS3(media.URL, localVideoPath); err != nil {
+		return fmt.Errorf("failed to download video from S3: %v", err)
+	}
+	
+	log.Printf("📥 Downloaded video to: %s", localVideoPath)
+	
+	// Process video with different qualities
+	qualities := []VideoQualityConfig{
+		{Quality: models.Quality360p, Width: 640, Height: 360, Bitrate: "800k"},
+		{Quality: models.Quality720p, Width: 1280, Height: 720, Bitrate: "1500k"},
+		{Quality: models.Quality1080p, Width: 1920, Height: 1080, Bitrate: "3000k"},
+	}
+	
+	var variants []models.VideoVariant
+	
+	for _, quality := range qualities {
+		variant, err := v.createOptimizedVideoVariant(localVideoPath, media.ID, quality, tempDir)
+		if err != nil {
+			log.Printf("❌ Failed to create %s variant: %v", quality.Quality, err)
+			continue
+		}
+		
+		variants = append(variants, *variant)
+		log.Printf("✅ Created %s variant: %s", quality.Quality, variant.URL)
+	}
+	
+	log.Printf("✅ Video processing completed for: %s with %d variants", media.ID, len(variants))
 	return nil
+}
+
+// downloadVideoFromS3 downloads a video from S3 to local storage
+func (v *VideoService) downloadVideoFromS3(s3URL, localPath string) error {
+	// Extract S3 key from URL
+	// URL format: https://bucket.s3.region.amazonaws.com/key
+	key := v.s3Service.ExtractKeyFromURL(s3URL)
+	if key == "" {
+		return fmt.Errorf("failed to extract S3 key from URL: %s", s3URL)
+	}
+	
+	// Get object from S3
+	result, err := v.s3Service.client.GetObject(context.TODO(), &s3.GetObjectInput{
+		Bucket: aws.String(v.s3Service.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get object from S3: %v", err)
+	}
+	defer result.Body.Close()
+	
+	// Create local file
+	file, err := os.Create(localPath)
+	if err != nil {
+		return fmt.Errorf("failed to create local file: %v", err)
+	}
+	defer file.Close()
+	
+	// Copy content from S3 to local file
+	_, err = io.Copy(file, result.Body)
+	if err != nil {
+		return fmt.Errorf("failed to copy file content: %v", err)
+	}
+	
+	return nil
+}
+
+// createOptimizedVideoVariant creates an optimized video variant using FFmpeg
+func (v *VideoService) createOptimizedVideoVariant(inputPath, mediaID string, quality VideoQualityConfig, tempDir string) (*models.VideoVariant, error) {
+	outputFilename := fmt.Sprintf("%s_%s.mp4", mediaID, quality.Quality)
+	outputPath := filepath.Join(tempDir, outputFilename)
+	
+	log.Printf("🎬 Creating %s variant: %s", quality.Quality, outputPath)
+	
+	// FFmpeg command for optimal video processing
+	// Using H.264 for video and AAC for audio as recommended
+	cmd := exec.Command(v.ffmpegPath,
+		"-i", inputPath,
+		"-vcodec", "libx264",        // H.264 video codec
+		"-acodec", "aac",            // AAC audio codec
+		"-strict", "-2",             // Allow experimental codecs
+		"-b:v", quality.Bitrate,     // Video bitrate
+		"-b:a", "192k",              // Audio bitrate
+		"-vf", fmt.Sprintf("scale=%d:%d", quality.Width, quality.Height), // Scale to target resolution
+		"-preset", "medium",         // Encoding preset (balance between speed and quality)
+		"-crf", "23",                // Constant Rate Factor (quality setting)
+		"-movflags", "+faststart",   // Optimize for web streaming
+		"-f", "mp4",                 // Force MP4 format
+		"-y",                        // Overwrite output file
+		outputPath,
+	)
+	
+	// Capture FFmpeg output for debugging
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("❌ FFmpeg error output: %s", string(output))
+		return nil, fmt.Errorf("ffmpeg failed: %v", err)
+	}
+	
+	log.Printf("✅ FFmpeg processing completed for %s", quality.Quality)
+	
+	// Get file size
+	fileInfo, err := os.Stat(outputPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file info: %v", err)
+	}
+	
+	// Upload processed video to S3
+	file, err := os.Open(outputPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open output file: %v", err)
+	}
+	defer file.Close()
+	
+	// Upload to S3 with quality-specific path
+	url, err := v.s3Service.UploadFileFromReader(file, outputFilename, "video/mp4", "videos/"+string(quality.Quality))
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload variant to S3: %v", err)
+	}
+	
+	// Create video variant
+	variant := &models.VideoVariant{
+		ID:        generateVideoUniqueID(),
+		MediaID:   mediaID,
+		Quality:   quality.Quality,
+		Width:     quality.Width,
+		Height:    quality.Height,
+		Bitrate:   parseBitrate(quality.Bitrate),
+		URL:       url,
+		Size:      fileInfo.Size(),
+		CreatedAt: time.Now(),
+	}
+	
+	return variant, nil
 }
 
 // GetVideoVariants returns video variants for streaming
