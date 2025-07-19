@@ -2,9 +2,7 @@ package handlers
 
 import (
 	"fmt"
-	"io"
 	"log"
-	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
