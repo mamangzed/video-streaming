@@ -1,3 +1,22 @@
+package handlers
+
+import (
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"api-s3/config"
+	"api-s3/models"
+	"api-s3/services"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+)
+
 // UploadMediaLocal handles file upload to local storage (for testing without S3)
 func (h *MediaHandler) UploadMediaLocal(c *gin.Context) {
 	log.Println("📤 Starting local file upload...")
