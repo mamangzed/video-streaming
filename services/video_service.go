@@ -29,7 +29,7 @@ func NewVideoService(s3Service *S3Service) *VideoService {
 }
 
 type VideoQualityConfig struct {
-	Quality VideoQuality
+	Quality models.VideoQuality
 	Width   int
 	Height  int
 	Bitrate string
@@ -125,7 +125,7 @@ func (v *VideoService) createVideoVariant(inputPath, mediaID string, quality Vid
 
 	// Create video variant
 	variant := &models.VideoVariant{
-		ID:        generateUniqueID(),
+		ID:        generateVideoUniqueID(),
 		MediaID:   mediaID,
 		Quality:   quality.Quality,
 		Width:     quality.Width,
@@ -292,6 +292,6 @@ func parseDuration(durationStr string) float64 {
 	return 0
 }
 
-func generateUniqueID() string {
+func generateVideoUniqueID() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano())
 } 

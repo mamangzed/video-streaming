@@ -13,8 +13,10 @@ import (
 	"api-s3/config"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 type S3Service struct {
@@ -23,14 +25,14 @@ type S3Service struct {
 }
 
 func NewS3Service() (*S3Service, error) {
-	cfg, err := config.LoadDefaultConfig(context.TODO(),
-		config.WithRegion(config.AppConfig.AWSRegion),
-		config.WithCredentialsProvider(config.CredentialsProviderFunc(func(ctx context.Context) (config.Credentials, error) {
-			return config.Credentials{
+	cfg, err := awsconfig.LoadDefaultConfig(context.TODO(),
+		awsconfig.WithRegion(config.AppConfig.AWSRegion),
+		awsconfig.WithCredentialsProvider(credentials.StaticCredentialsProvider{
+			Value: aws.Credentials{
 				AccessKeyID:     config.AppConfig.AWSAccessKeyID,
 				SecretAccessKey: config.AppConfig.AWSSecretAccessKey,
-			}, nil
-		})),
+			},
+		}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to load SDK config: %v", err)
@@ -146,7 +148,7 @@ func (s *S3Service) FileExists(key string) (bool, error) {
 
 	if err != nil {
 		// Check if it's a "not found" error
-		var noSuchKey *s3.NoSuchKey
+		var noSuchKey *types.NoSuchKey
 		if strings.Contains(err.Error(), "NoSuchKey") {
 			return false, nil
 		}
