@@ -210,6 +210,13 @@ func (s *S3Service) StreamFile(w http.ResponseWriter, r *http.Request, key strin
 	// Stream the file content
 	_, err = io.Copy(w, result.Body)
 	if err != nil {
+		// Check if it's a broken pipe error (normal for video streaming)
+		if strings.Contains(err.Error(), "broken pipe") || 
+		   strings.Contains(err.Error(), "connection reset") ||
+		   strings.Contains(err.Error(), "write: broken pipe") {
+			log.Printf("📺 Client disconnected during streaming (normal): %v", err)
+			return nil // Don't treat as error
+		}
 		return fmt.Errorf("failed to stream file content: %v", err)
 	}
 	

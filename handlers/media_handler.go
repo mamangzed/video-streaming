@@ -360,6 +360,14 @@ func (h *MediaHandler) StreamVideo(c *gin.Context) {
 	if exists, _ := h.s3Service.FileExists(qualityVariantKey); exists {
 		log.Printf("✅ Found quality variant: %s", qualityVariantKey)
 		if err := h.s3Service.StreamFile(c.Writer, c.Request, qualityVariantKey); err != nil {
+			// Check if it's a broken pipe error (normal for video streaming)
+			if strings.Contains(err.Error(), "broken pipe") || 
+			   strings.Contains(err.Error(), "connection reset") ||
+			   strings.Contains(err.Error(), "write: broken pipe") {
+				log.Printf("📺 Client disconnected during streaming (normal): %v", err)
+				return // Don't treat as error
+			}
+			
 			log.Printf("❌ Failed to stream video: %v", err)
 			// Don't send JSON response if headers already written
 			if !c.Writer.Written() {
@@ -401,6 +409,14 @@ func (h *MediaHandler) StreamVideo(c *gin.Context) {
 			
 			log.Printf("✅ Found original video file: %s", obj)
 			if err := h.s3Service.StreamFile(c.Writer, c.Request, obj); err != nil {
+				// Check if it's a broken pipe error (normal for video streaming)
+				if strings.Contains(err.Error(), "broken pipe") || 
+				   strings.Contains(err.Error(), "connection reset") ||
+				   strings.Contains(err.Error(), "write: broken pipe") {
+					log.Printf("📺 Client disconnected during streaming (normal): %v", err)
+					return // Don't treat as error
+				}
+				
 				log.Printf("❌ Failed to stream video: %v", err)
 				// Don't send JSON response if headers already written
 				if !c.Writer.Written() {
