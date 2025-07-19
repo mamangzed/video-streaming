@@ -57,10 +57,9 @@ func (s *S3Service) UploadFile(file *multipart.FileHeader, folder string) (strin
 
 	// Upload to S3
 	_, err = s.client.PutObject(context.TODO(), &s3.PutObjectInput{
-		Bucket: aws.String(s.bucket),
-		Key:    aws.String(filename),
-		Body:   src,
-		ACL:    "public-read",
+		Bucket:      aws.String(s.bucket),
+		Key:         aws.String(filename),
+		Body:        src,
 		ContentType: aws.String(file.Header.Get("Content-Type")),
 	})
 
@@ -83,7 +82,6 @@ func (s *S3Service) UploadFileFromReader(reader io.Reader, filename, contentType
 		Bucket:      aws.String(s.bucket),
 		Key:         aws.String(uniqueFilename),
 		Body:        reader,
-		ACL:         "public-read",
 		ContentType: aws.String(contentType),
 	})
 
