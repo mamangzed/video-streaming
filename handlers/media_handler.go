@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -87,18 +88,111 @@ func (h *MediaHandler) UploadMedia(c *gin.Context) {
 		return
 	}
 
-	// Upload to S3
-	key := fmt.Sprintf("media/%s/%s", mediaID, file.Filename)
-	log.Printf("☁️ Uploading to S3: %s", key)
-	
-	uploadedURL, err := h.s3Service.UploadFile(file, key)
-	if err != nil {
-		log.Printf("❌ S3 upload failed: %v", err)
-		c.JSON(http.StatusInternalServerError, models.UploadResponse{
-			Success: false,
-			Message: "Failed to upload file to S3",
-		})
-		return
+	// For videos, process with FFmpeg first before uploading
+	var uploadedURL string
+	if mediaType == models.MediaTypeVideo {
+		log.Printf("🎬 Processing video with FFmpeg before upload...")
+		
+		// Create temp directory for processing
+		tempDir := "temp"
+		if err := os.MkdirAll(tempDir, 0755); err != nil {
+			log.Printf("❌ Failed to create temp directory: %v", err)
+			c.JSON(http.StatusInternalServerError, models.UploadResponse{
+				Success: false,
+				Message: "Failed to create temp directory",
+			})
+			return
+		}
+		defer os.RemoveAll(tempDir)
+		
+		// Save uploaded file to temp directory
+		tempInputPath := filepath.Join(tempDir, file.Filename)
+		if err := c.SaveUploadedFile(file, tempInputPath); err != nil {
+			log.Printf("❌ Failed to save temp file: %v", err)
+			c.JSON(http.StatusInternalServerError, models.UploadResponse{
+				Success: false,
+				Message: "Failed to save temp file",
+			})
+			return
+		}
+		
+		// Process video with FFmpeg to optimal MP4 format
+		outputFilename := fmt.Sprintf("%s_optimized.mp4", mediaID)
+		outputPath := filepath.Join(tempDir, outputFilename)
+		
+		log.Printf("🎬 Converting to optimal MP4 format...")
+		cmd := exec.Command("ffmpeg",
+			"-i", tempInputPath,
+			"-vcodec", "libx264",        // H.264 video codec
+			"-acodec", "aac",            // AAC audio codec
+			"-strict", "-2",             // Allow experimental codecs
+			"-b:v", "3M",                // Video bitrate 3Mbps
+			"-b:a", "192k",              // Audio bitrate 192kbps
+			"-f", "mp4",                 // Force MP4 format
+			"-movflags", "+faststart",   // Optimize for web streaming
+			"-preset", "medium",         // Encoding preset
+			"-crf", "23",                // Constant Rate Factor
+			"-y",                        // Overwrite output file
+			outputPath,
+		)
+		
+		// Capture FFmpeg output for debugging
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Printf("❌ FFmpeg error output: %s", string(output))
+			c.JSON(http.StatusInternalServerError, models.UploadResponse{
+				Success: false,
+				Message: "Failed to process video with FFmpeg",
+			})
+			return
+		}
+		
+		log.Printf("✅ Video processing completed")
+		
+		// Upload processed video to S3
+		key := fmt.Sprintf("media/%s/%s", mediaID, outputFilename)
+		log.Printf("☁️ Uploading processed video to S3: %s", key)
+		
+		// Open processed file and upload
+		processedFile, err := os.Open(outputPath)
+		if err != nil {
+			log.Printf("❌ Failed to open processed file: %v", err)
+			c.JSON(http.StatusInternalServerError, models.UploadResponse{
+				Success: false,
+				Message: "Failed to open processed file",
+			})
+			return
+		}
+		defer processedFile.Close()
+		
+		uploadedURL, err = h.s3Service.UploadFileFromReader(processedFile, outputFilename, "video/mp4", "media/"+mediaID)
+		if err != nil {
+			log.Printf("❌ S3 upload failed: %v", err)
+			c.JSON(http.StatusInternalServerError, models.UploadResponse{
+				Success: false,
+				Message: "Failed to upload processed video to S3",
+			})
+			return
+		}
+		
+		// Update media object with processed file info
+		media.Filename = outputFilename
+		media.MimeType = "video/mp4"
+		
+	} else {
+		// For non-video files, upload directly
+		key := fmt.Sprintf("media/%s/%s", mediaID, file.Filename)
+		log.Printf("☁️ Uploading to S3: %s", key)
+		
+		uploadedURL, err = h.s3Service.UploadFile(file, key)
+		if err != nil {
+			log.Printf("❌ S3 upload failed: %v", err)
+			c.JSON(http.StatusInternalServerError, models.UploadResponse{
+				Success: false,
+				Message: "Failed to upload file to S3",
+			})
+			return
+		}
 	}
 
 	log.Printf("✅ S3 upload successful: %s", uploadedURL)
@@ -379,6 +473,35 @@ func (h *MediaHandler) StreamVideo(c *gin.Context) {
 			return
 		}
 		log.Printf("✅ Video streamed successfully: %s", qualityVariantKey)
+		return
+	}
+	
+	// Try to find the optimized video file (processed with FFmpeg)
+	optimizedKey := fmt.Sprintf("media/%s/%s_optimized.mp4", mediaID, mediaID)
+	log.Printf("🔍 Looking for optimized video: %s", optimizedKey)
+	
+	if exists, _ := h.s3Service.FileExists(optimizedKey); exists {
+		log.Printf("✅ Found optimized video: %s", optimizedKey)
+		if err := h.s3Service.StreamFile(c.Writer, c.Request, optimizedKey); err != nil {
+			// Check if it's a broken pipe error (normal for video streaming)
+			if strings.Contains(err.Error(), "broken pipe") || 
+			   strings.Contains(err.Error(), "connection reset") ||
+			   strings.Contains(err.Error(), "write: broken pipe") {
+				log.Printf("📺 Client disconnected during streaming (normal): %v", err)
+				return // Don't treat as error
+			}
+			
+			log.Printf("❌ Failed to stream video: %v", err)
+			// Don't send JSON response if headers already written
+			if !c.Writer.Written() {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"message": "Failed to stream video",
+				})
+			}
+			return
+		}
+		log.Printf("✅ Video streamed successfully: %s", optimizedKey)
 		return
 	}
 	
