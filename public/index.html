@@ -336,7 +336,8 @@
                     <button class="quality-btn" onclick="streamVideo('${media.id}', '720p')">720p</button>
                     <button class="quality-btn" onclick="streamVideo('${media.id}', '1080p')">1080p</button>
                 </div>
-                <video controls class="video-player" id="videoPlayer" style="display: none;">
+                <video controls class="video-player" id="videoPlayer">
+                    <source src="${media.url}" type="video/mp4">
                     Your browser does not support the video tag.
                 </video>
             `;
@@ -347,11 +348,15 @@
             try {
                 const response = await fetch(`/api/v1/media/${mediaId}/stream/${quality}`);
                 if (response.ok) {
-                    const videoUrl = response.url;
-                    const videoPlayer = document.getElementById('videoPlayer');
-                    videoPlayer.src = videoUrl;
-                    videoPlayer.style.display = 'block';
-                    videoPlayer.play();
+                    const data = await response.json();
+                    if (data.success) {
+                        const videoPlayer = document.getElementById('videoPlayer');
+                        videoPlayer.src = data.url;
+                        videoPlayer.style.display = 'block';
+                        videoPlayer.play();
+                    } else {
+                        alert('Video not available in this quality yet. Processing may still be in progress.');
+                    }
                 } else {
                     alert('Video not available in this quality yet. Processing may still be in progress.');
                 }

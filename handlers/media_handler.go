@@ -307,19 +307,20 @@ func (h *MediaHandler) StreamVideo(c *gin.Context) {
 	quality := c.Param("quality")
 	log.Printf("🎬 Streaming video: %s at quality: %s", mediaID, quality)
 
-	if h.videoService == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"success": false,
-			"message": "Video service not available",
-		})
-		return
-	}
-
-	// This would typically serve the video file or redirect to the appropriate URL
+	// For now, redirect to the original video URL
+	// In a real implementation, you would:
+	// 1. Look up the specific quality variant
+	// 2. Return the appropriate video URL
+	
+	// Get the original video URL from the media ID
+	// This is a simplified implementation - in production you'd query a database
+	originalURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/media/%s", 
+		config.AppConfig.AWSS3Bucket, config.AppConfig.AWSRegion, mediaID)
+	
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": fmt.Sprintf("Streaming video %s at %s quality", mediaID, quality),
-		"url":     fmt.Sprintf("/media/%s/stream/%s", mediaID, quality),
+		"message": fmt.Sprintf("Video stream for %s at %s quality", mediaID, quality),
+		"url":     originalURL,
 	})
 }
 
