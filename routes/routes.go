@@ -1,63 +1,69 @@
-package main
+package routes
 
 import (
-	"log"
-	"net/http"
-	"os"
-
-	"api-s3/config"
-	"api-s3/routes"
+	"api-s3/handlers"
 	"api-s3/services"
+
+	"github.com/gin-gonic/gin"
 )
 
-func main() {
-	// Set log format for better debugging
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	
-	// Load configuration
-	config.LoadConfig()
-	log.Println("✅ Configuration loaded successfully")
+func SetupRoutes(s3Service *services.S3Service, videoService *services.VideoService) *gin.Engine {
+	router := gin.Default()
 
-	// Initialize S3 service with better error handling
-	var s3Service *services.S3Service
-	var videoService *services.VideoService
-	
-	s3Service, err := services.NewS3Service()
-	if err != nil {
-		log.Printf("⚠️  Failed to initialize S3 service: %v", err)
-		log.Println("   Running in local mode only")
-		log.Println("   Use /api/v1/upload-local for testing without S3")
-		s3Service = nil
-	} else {
-		log.Println("✅ S3 service initialized successfully")
+	// CORS middleware
+	router.Use(func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+		
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		
+		c.Next()
+	})
+
+	// Serve static files
+	router.Static("/static", "./public")
+	router.LoadHTMLGlob("public/*.html")
+
+	// Serve uploaded files
+	router.Static("/uploads", "./uploads")
+
+	// Serve index page
+	router.GET("/", func(c *gin.Context) {
+		c.HTML(200, "index.html", nil)
+	})
+
+	// Create media handler
+	mediaHandler := handlers.NewMediaHandler(s3Service, videoService)
+
+	// API routes
+	api := router.Group("/api/v1")
+	{
+		// Media upload
+		api.POST("/upload", mediaHandler.UploadMedia)
+		
+		// Local upload (for testing without S3)
+		api.POST("/upload-local", mediaHandler.UploadMediaLocal)
+		
+		// Media management
+		api.DELETE("/media/:id", mediaHandler.DeleteMedia)
+		
+		// Video streaming
+		api.GET("/media/:id/stream", mediaHandler.GetVideoStream)
+		api.GET("/media/:id/stream/:quality", mediaHandler.StreamVideo)
+		api.GET("/media/:id/thumbnail", mediaHandler.GetThumbnail)
 	}
 
-	// Initialize video service
-	if s3Service != nil {
-		videoService = services.NewVideoService(s3Service)
-		log.Println("✅ Video service initialized successfully")
-	} else {
-		log.Println("⚠️  Video service disabled (no S3 connection)")
-	}
+	// Health check
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"status": "ok",
+			"message": "API is running",
+		})
+	})
 
-	// Setup routes
-	router := routes.SetupRoutes(s3Service, videoService)
-	log.Println("✅ Routes configured successfully")
-
-	// Start server
-	port := ":" + config.AppConfig.Port
-	log.Printf(" Starting server on port %s", port)
-	log.Printf("📋 API endpoints:")
-	log.Printf("  POST   /api/v1/upload          (requires S3)")
-	log.Printf("  POST   /api/v1/upload-local    (local storage)")
-	log.Printf("  DELETE /api/v1/media/:id")
-	log.Printf("  GET    /api/v1/media/:id/stream")
-	log.Printf("  GET    /api/v1/media/:id/stream/:quality")
-	log.Printf("  GET    /api/v1/media/:id/thumbnail")
-	log.Printf("  GET    /health")
-	log.Printf("  GET    /")
-
-	if err := http.ListenAndServe(port, router); err != nil {
-		log.Fatalf("❌ Failed to start server: %v", err)
-	}
+	return router
 } 
