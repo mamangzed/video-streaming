@@ -205,9 +205,27 @@ func (h *MediaHandler) UploadMedia(c *gin.Context) {
 	}
 }
 
-// processVideoInBackground processes video in background
+// processVideoInBackground processes video in background - FAST CONVERT ONLY
 func (h *MediaHandler) processVideoInBackground(mediaID string, file *multipart.FileHeader, c *gin.Context) error {
-	log.Printf("🎬 Starting background video processing for: %s", mediaID)
+	log.Printf("🎬 Starting fast video conversion for: %s", mediaID)
+	
+	// Check if file is already MP4 - skip processing for speed
+	if strings.HasSuffix(strings.ToLower(file.Filename), ".mp4") {
+		log.Printf("✅ File is already MP4, uploading directly for speed")
+		
+		// Upload original MP4 file directly
+		key := fmt.Sprintf("media/%s/%s", mediaID, file.Filename)
+		log.Printf("☁️ Uploading original MP4 to S3: %s", key)
+		
+		uploadedURL, err := h.s3Service.UploadFile(file, key)
+		if err != nil {
+			log.Printf("❌ S3 upload failed: %v", err)
+			return err
+		}
+		
+		log.Printf("✅ Original MP4 upload completed: %s", uploadedURL)
+		return nil
+	}
 	
 	// Create temp directory for processing with unique timestamp
 	timestamp := time.Now().Unix()
@@ -226,80 +244,77 @@ func (h *MediaHandler) processVideoInBackground(mediaID string, file *multipart.
 		return err
 	}
 	
-	// Process video with FFmpeg to optimal MP4 format
-	outputFilename := fmt.Sprintf("%s_optimized.mp4", mediaID)
+	// Fast convert-only output
+	outputFilename := fmt.Sprintf("%s_converted.mp4", mediaID)
 	outputPath := filepath.Join(tempDir, outputFilename)
 	
-	log.Printf("🎬 Converting to optimal MP4 format...")
+	log.Printf("🎬 Converting to MP4 (fast mode)...")
 	
-	// Optimized FFmpeg command for best quality only
+	// FAST FFmpeg command - convert only, no scaling
 	cmd := exec.Command("ffmpeg",
 		"-i", tempInputPath,
 		"-c:v", "libx264",           // H.264 video codec
-		"-preset", "slow",           // Best quality preset
-		"-crf", "18",                // High quality (visually lossless)
+		"-preset", "fast",           // Fast preset (not slow)
+		"-crf", "23",                // Good quality, fast encoding
 		"-c:a", "aac",               // AAC audio codec
-		"-b:a", "192k",              // High audio bitrate
-		"-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos:force_original_aspect_ratio=decrease", // Best scaling
+		"-b:a", "128k",              // Standard audio bitrate
 		"-movflags", "+faststart",   // Optimize for web streaming
-		"-profile:v", "high",        // High profile for best compatibility
-		"-level", "4.1",             // H.264 level 4.1
 		"-pix_fmt", "yuv420p",       // Standard pixel format
-		"-threads", "0",             // Use all available CPU threads
+		"-threads", "0",             // Use all CPU threads
 		"-f", "mp4",                 // Force MP4 format
 		"-y",                        // Overwrite output file
 		outputPath,
 	)
 	
-	// Set timeout based on file size
-	timeout := 5 * time.Minute
+	// Shorter timeout for fast processing
+	timeout := 3 * time.Minute
 	if file.Size > 100*1024*1024 { // 100MB
-		timeout = 20 * time.Minute // 20 minutes for large files
-		log.Printf("⏱️ Large file detected, extending timeout to 20 minutes")
+		timeout = 5 * time.Minute
+		log.Printf("⏱️ Large file detected, extending timeout to 5 minutes")
 	} else if file.Size > 50*1024*1024 { // 50MB
-		timeout = 10 * time.Minute // 10 minutes for medium files
-		log.Printf("⏱️ Medium file detected, extending timeout to 10 minutes")
+		timeout = 4 * time.Minute
+		log.Printf("⏱️ Medium file detected, extending timeout to 4 minutes")
 	}
 	
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd = exec.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
 	
-	log.Printf("⏱️ Starting FFmpeg processing (timeout: %v)...", timeout)
+	log.Printf("⏱️ Starting fast FFmpeg conversion (timeout: %v)...", timeout)
 	log.Printf("📊 Input file size: %d bytes (%d MB)", file.Size, file.Size/(1024*1024))
 	
 	// Capture FFmpeg output for debugging
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			log.Printf("❌ FFmpeg processing timed out after 5 minutes")
-			return fmt.Errorf("FFmpeg processing timed out")
+			log.Printf("❌ FFmpeg conversion timed out")
+			return fmt.Errorf("FFmpeg conversion timed out")
 		}
 		log.Printf("❌ FFmpeg error output: %s", string(output))
 		return fmt.Errorf("FFmpeg failed: %v", err)
 	}
 	
-	log.Printf("✅ FFmpeg processing completed successfully")
+	log.Printf("✅ Fast FFmpeg conversion completed successfully")
 	
-	// Upload processed video to S3
+	// Upload converted video to S3
 	key := fmt.Sprintf("media/%s/%s", mediaID, outputFilename)
-	log.Printf("☁️ Uploading processed video to S3: %s", key)
+	log.Printf("☁️ Uploading converted video to S3: %s", key)
 	
-	// Open processed file and upload
-	processedFile, err := os.Open(outputPath)
+	// Open converted file and upload
+	convertedFile, err := os.Open(outputPath)
 	if err != nil {
-		log.Printf("❌ Failed to open processed file: %v", err)
+		log.Printf("❌ Failed to open converted file: %v", err)
 		return err
 	}
-	defer processedFile.Close()
+	defer convertedFile.Close()
 	
-	uploadedURL, err := h.s3Service.UploadFileFromReader(processedFile, outputFilename, "video/mp4", "media/"+mediaID)
+	uploadedURL, err := h.s3Service.UploadFileFromReader(convertedFile, outputFilename, "video/mp4", "media/"+mediaID)
 	if err != nil {
 		log.Printf("❌ S3 upload failed: %v", err)
 		return err
 	}
 	
-	log.Printf("✅ Background video processing completed: %s", uploadedURL)
+	log.Printf("✅ Fast video conversion completed: %s", uploadedURL)
 	return nil
 }
 
@@ -839,13 +854,13 @@ func (h *MediaHandler) StreamVideo(c *gin.Context) {
 		return
 	}
 	
-	// Fallback to optimized video
-	optimizedKey := fmt.Sprintf("media/%s/%s_optimized.mp4", mediaID, mediaID)
-	log.Printf("🔍 Looking for optimized video: %s", optimizedKey)
+	// Fallback to converted video
+	convertedKey := fmt.Sprintf("media/%s/%s_converted.mp4", mediaID, mediaID)
+	log.Printf("🔍 Looking for converted video: %s", convertedKey)
 	
-	if exists, _ := h.s3Service.FileExists(optimizedKey); exists {
-		log.Printf("✅ Found optimized video: %s", optimizedKey)
-		if err := h.s3Service.StreamFile(c.Writer, c.Request, optimizedKey); err != nil {
+	if exists, _ := h.s3Service.FileExists(convertedKey); exists {
+		log.Printf("✅ Found converted video: %s", convertedKey)
+		if err := h.s3Service.StreamFile(c.Writer, c.Request, convertedKey); err != nil {
 			// Handle broken pipe errors gracefully
 			if strings.Contains(err.Error(), "broken pipe") || 
 			   strings.Contains(err.Error(), "connection reset") ||
@@ -863,8 +878,50 @@ func (h *MediaHandler) StreamVideo(c *gin.Context) {
 			}
 			return
 		}
-		log.Printf("✅ Video streamed successfully: %s", optimizedKey)
+		log.Printf("✅ Video streamed successfully: %s", convertedKey)
 		return
+	}
+	
+	// Try to find original video file
+	originalKey := fmt.Sprintf("media/%s/", mediaID)
+	log.Printf("🔍 Looking for original video in: %s", originalKey)
+	
+	// List objects in the media directory
+	objects, err := h.s3Service.ListObjects(originalKey)
+	if err != nil {
+		log.Printf("❌ Failed to list objects: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Failed to find video file",
+		})
+		return
+	}
+	
+	// Look for any video file
+	for _, obj := range objects {
+		if strings.HasSuffix(strings.ToLower(obj), ".mp4") {
+			log.Printf("✅ Found original video: %s", obj)
+			if err := h.s3Service.StreamFile(c.Writer, c.Request, obj); err != nil {
+				// Handle broken pipe errors gracefully
+				if strings.Contains(err.Error(), "broken pipe") || 
+				   strings.Contains(err.Error(), "connection reset") ||
+				   strings.Contains(err.Error(), "write: broken pipe") {
+					log.Printf("📺 Client disconnected during streaming (normal): %v", err)
+					return
+				}
+				
+				log.Printf("❌ Failed to stream video: %v", err)
+				if !c.Writer.Written() {
+					c.JSON(http.StatusInternalServerError, gin.H{
+						"success": false,
+						"message": "Failed to stream video",
+					})
+				}
+				return
+			}
+			log.Printf("✅ Original video streamed successfully: %s", obj)
+			return
+		}
 	}
 	
 	// Video not found
