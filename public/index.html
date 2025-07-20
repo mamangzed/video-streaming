@@ -477,7 +477,7 @@
                 
                 // Handle response
                 xhr.addEventListener('load', () => {
-                    if (xhr.status === 200) {
+                    if (xhr.status === 200 || xhr.status === 202) { // 202 = Accepted (for video processing)
                         try {
                             const data = JSON.parse(xhr.responseText);
                             
