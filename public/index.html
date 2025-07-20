@@ -484,7 +484,7 @@
                         <p><strong>Name:</strong> ${data.media.original_name}</p>
                         <p><strong>Type:</strong> ${data.media.media_type}</p>
                         <p><strong>Size:</strong> ${formatFileSize(data.media.size)}</p>
-                        ${data.media.url ? `<p><strong>URL:</strong> <a href="${data.media.url}" target="_blank">View File</a></p>` : ''}
+                        ${data.media.url ? '<p><strong>URL:</strong> <a href="' + data.media.url + '" target="_blank">View File</a></p>' : ''}
                     </div>
                 `;
             } else {
@@ -503,7 +503,7 @@
                 <p><strong>Duration:</strong> ${media.duration || 'Unknown'} seconds</p>
                 <p><strong>Resolution:</strong> ${media.width || 'Unknown'}x${media.height || 'Unknown'}</p>
                 <p><strong>Size:</strong> ${formatFileSize(media.size)}</p>
-                ${media.thumbnail_url ? `<img src="${media.thumbnail_url}" alt="Thumbnail" class="thumbnail">` : ''}
+                ${media.thumbnail_url ? '<img src="' + media.thumbnail_url + '" alt="Thumbnail" class="thumbnail">' : ''}
                 <div class="quality-selector">
                     <h4>Available Qualities:</h4>
                     <button class="quality-btn" onclick="streamVideo('${media.id}', '360p')">360p</button>
