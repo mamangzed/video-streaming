@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"os/exec"
@@ -155,32 +156,6 @@ func (h *MediaHandler) UploadMedia(c *gin.Context) {
 		})
 		return
 	}
-
-	log.Printf("✅ S3 upload successful: %s", uploadedURL)
-
-	// Create media object
-	media := &models.Media{
-		ID:           mediaID,
-		Filename:     finalFilename,
-		OriginalName: file.Filename,
-		MediaType:    mediaType,
-		MimeType:     finalMimeType,
-		Size:         file.Size,
-		URL:          uploadedURL,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-	}
-
-	// Video processing is now done before upload, so no need for background processing
-	// The video is already converted to MP4 format
-
-	log.Printf("✅ Upload completed successfully: %s", media.URL)
-
-	c.JSON(http.StatusOK, models.UploadResponse{
-		Success: true,
-		Message: "File uploaded successfully",
-		Media:   media,
-	})
 }
 
 // processVideoInBackground processes video in background
@@ -334,16 +309,16 @@ func (h *MediaHandler) GetMediaInfo(c *gin.Context) {
 	var filename string
 	var mimeType string
 	
-	for _, obj := range objects {
-		if strings.Contains(*obj.Key, "_optimized.mp4") {
+	for _, objKey := range objects {
+		if strings.Contains(objKey, "_optimized.mp4") {
 			// This is the processed video
-			url, err := h.s3Service.GeneratePresignedURL(*obj.Key, 24*time.Hour)
+			url, err := h.s3Service.GeneratePresignedURL(objKey, 24*time.Hour)
 			if err != nil {
 				log.Printf("❌ Error generating presigned URL: %v", err)
 				continue
 			}
 			mediaURL = url
-			filename = filepath.Base(*obj.Key)
+			filename = filepath.Base(objKey)
 			mimeType = "video/mp4"
 			break
 		}
@@ -351,14 +326,14 @@ func (h *MediaHandler) GetMediaInfo(c *gin.Context) {
 	
 	if mediaURL == "" {
 		// Fallback to original file
-		for _, obj := range objects {
-			url, err := h.s3Service.GeneratePresignedURL(*obj.Key, 24*time.Hour)
+		for _, objKey := range objects {
+			url, err := h.s3Service.GeneratePresignedURL(objKey, 24*time.Hour)
 			if err != nil {
 				log.Printf("❌ Error generating presigned URL: %v", err)
 				continue
 			}
 			mediaURL = url
-			filename = filepath.Base(*obj.Key)
+			filename = filepath.Base(objKey)
 			mimeType = "video/mp4" // Default to video
 			break
 		}
