@@ -419,10 +419,17 @@
             processingStatus.style.display = 'block';
             startTime = Date.now();
             
+            // Show initial message for large files
+            if (selectedFile && selectedFile.size > 100 * 1024 * 1024) { // 100MB
+                statusText.textContent = 'Large file detected! Processing may take 10-20 minutes. Please be patient...';
+            } else {
+                statusText.textContent = 'Starting video processing...';
+            }
+            
             // Start progress tracking
             processingInterval = setInterval(() => {
                 updateProcessingProgress(mediaId);
-            }, 2000); // Check every 2 seconds
+            }, 3000); // Check every 3 seconds for large files
         }
 
         async function updateProcessingProgress(mediaId) {
@@ -433,7 +440,23 @@
                 if (data.success) {
                     const progress = data.progress || 0;
                     const status = data.status || 'processing';
-                    const message = data.message || 'Processing video...';
+                    let message = data.message || 'Processing video...';
+                    
+                    // Add time-based messages for large files
+                    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                    const minutes = Math.floor(elapsed / 60);
+                    
+                    if (selectedFile && selectedFile.size > 100 * 1024 * 1024) { // 100MB
+                        if (minutes < 2) {
+                            message = 'Initializing FFmpeg for large file...';
+                        } else if (minutes < 5) {
+                            message = 'FFmpeg is processing your large video file...';
+                        } else if (minutes < 10) {
+                            message = 'Still processing large video file. This may take a while...';
+                        } else {
+                            message = 'Processing large video file. Almost done...';
+                        }
+                    }
                     
                     // Update UI
                     statusText.textContent = message;
@@ -441,8 +464,6 @@
                     progressPercent.textContent = `${progress}%`;
                     
                     // Update timer
-                    const elapsed = Math.floor((Date.now() - startTime) / 1000);
-                    const minutes = Math.floor(elapsed / 60);
                     const seconds = elapsed % 60;
                     processingTime.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
                     

@@ -184,28 +184,51 @@ func (h *MediaHandler) processVideoInBackground(mediaID string, file *multipart.
 	outputPath := filepath.Join(tempDir, outputFilename)
 	
 	log.Printf("🎬 Converting to optimal MP4 format...")
+	
+	// Optimize FFmpeg settings for large files
+	// Use faster preset for large files to reduce processing time
+	preset := "fast"
+	crf := "28" // Higher CRF = smaller file, faster processing
+	
+	// For very large files (>100MB), use even faster settings
+	if file.Size > 100*1024*1024 { // 100MB
+		preset = "ultrafast"
+		crf = "30"
+		log.Printf("📊 Large file detected (%d MB), using ultrafast preset", file.Size/(1024*1024))
+	}
+	
 	cmd := exec.Command("ffmpeg",
 		"-i", tempInputPath,
 		"-vcodec", "libx264",        // H.264 video codec
 		"-acodec", "aac",            // AAC audio codec
 		"-strict", "-2",             // Allow experimental codecs
-		"-b:v", "3M",                // Video bitrate 3Mbps
-		"-b:a", "192k",              // Audio bitrate 192kbps
+		"-b:v", "2M",                // Reduced bitrate for faster processing
+		"-b:a", "128k",              // Reduced audio bitrate
 		"-f", "mp4",                 // Force MP4 format
 		"-movflags", "+faststart",   // Optimize for web streaming
-		"-preset", "medium",         // Encoding preset
-		"-crf", "23",                // Constant Rate Factor
+		"-preset", preset,           // Use faster preset for large files
+		"-crf", crf,                 // Higher CRF for faster processing
+		"-threads", "0",             // Use all available CPU threads
 		"-y",                        // Overwrite output file
 		outputPath,
 	)
 	
-	// Set a timeout for FFmpeg processing (5 minutes)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	// Set timeout based on file size
+	timeout := 5 * time.Minute
+	if file.Size > 100*1024*1024 { // 100MB
+		timeout = 20 * time.Minute // 20 minutes for large files
+		log.Printf("⏱️ Large file detected, extending timeout to 20 minutes")
+	} else if file.Size > 50*1024*1024 { // 50MB
+		timeout = 10 * time.Minute // 10 minutes for medium files
+		log.Printf("⏱️ Medium file detected, extending timeout to 10 minutes")
+	}
+	
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd = exec.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
 	
-	log.Printf("⏱️ Starting FFmpeg processing (timeout: 5 minutes)...")
-	log.Printf("📊 Input file size: %d bytes", file.Size)
+	log.Printf("⏱️ Starting FFmpeg processing (timeout: %v)...", timeout)
+	log.Printf("📊 Input file size: %d bytes (%d MB)", file.Size, file.Size/(1024*1024))
 	
 	// Capture FFmpeg output for debugging
 	output, err := cmd.CombinedOutput()
@@ -278,13 +301,32 @@ func (h *MediaHandler) GetProcessingProgress(c *gin.Context) {
 			"message": "Video processing completed successfully!",
 		})
 	} else {
+		// Check if there are any temp files (processing in progress)
+		var hasTempFiles bool
+		for _, objKey := range objects {
+			if strings.Contains(objKey, ".tmp") || strings.Contains(objKey, "temp") {
+				hasTempFiles = true
+				break
+			}
+		}
+		
+		// Calculate progress based on time elapsed (rough estimate)
+		// For large files like 198MB, processing can take 5-15 minutes
+		progress := 25 // Start at 25% for large files
+		message := "Video is being processed with FFmpeg..."
+		
+		if hasTempFiles {
+			progress = 50
+			message = "FFmpeg is actively processing your video..."
+		}
+		
 		// Still processing
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"media_id": mediaID,
 			"status": "processing",
-			"progress": 75, // Estimate based on typical processing time
-			"message": "Video is being processed with FFmpeg...",
+			"progress": progress,
+			"message": message,
 		})
 	}
 }
