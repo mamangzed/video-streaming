@@ -11,7 +11,6 @@ const (
 	MediaTypeVideo MediaType = "video"
 )
 
-// Remove multiple quality constants, keep only one
 type VideoQuality string
 
 const (

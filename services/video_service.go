@@ -250,64 +250,7 @@ func (v *VideoService) CreateThumbnail(inputPath, mediaID string) (string, error
 	return url, nil
 }
 
-func (v *VideoService) CreateHLSPlaylist(variants []models.VideoVariant, mediaID string) (string, error) {
-	// Create HLS playlist content
-	playlist := "#EXTM3U\n"
-	playlist += "#EXT-X-VERSION:3\n\n"
-
-	for _, variant := range variants {
-		playlist += fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%dx%d\n", 
-			variant.Bitrate*1000, variant.Width, variant.Height)
-		playlist += fmt.Sprintf("%s\n\n", variant.URL)
-	}
-
-	// Upload playlist to S3
-	playlistFilename := fmt.Sprintf("%s.m3u8", mediaID)
-	url, err := v.s3Service.UploadFileFromReader(
-		strings.NewReader(playlist),
-		playlistFilename,
-		"application/vnd.apple.mpegurl",
-		"playlists",
-	)
-	if err != nil {
-		return "", fmt.Errorf("failed to upload playlist: %v", err)
-	}
-
-	return url, nil
-}
-
-type VideoInfo struct {
-	Width    int
-	Height   int
-	Duration float64
-}
-
-func parseBitrate(bitrateStr string) int {
-	// Remove 'k' suffix and convert to int
-	bitrateStr = strings.TrimSuffix(bitrateStr, "k")
-	if bitrate, err := strconv.Atoi(bitrateStr); err == nil {
-		return bitrate
-	}
-	return 0
-}
-
-func parseDuration(durationStr string) float64 {
-	// Parse duration like "00:01:30.00"
-	parts := strings.Split(durationStr, ":")
-	if len(parts) >= 3 {
-		hours, _ := strconv.Atoi(parts[0])
-		minutes, _ := strconv.Atoi(parts[1])
-		seconds, _ := strconv.ParseFloat(parts[2], 64)
-		return float64(hours*3600 + minutes*60) + seconds
-	}
-	return 0
-}
-
-func generateVideoUniqueID() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano())
-}
-
-// ProcessVideoForStreaming processes a video for streaming with multiple qualities
+// ProcessVideoForStreaming processes a video for streaming with best quality only
 func (v *VideoService) ProcessVideoForStreaming(media *models.Media) error {
 	log.Printf("🎥 Starting video processing for streaming: %s", media.ID)
 	
@@ -326,27 +269,33 @@ func (v *VideoService) ProcessVideoForStreaming(media *models.Media) error {
 	
 	log.Printf("📥 Downloaded video to: %s", localVideoPath)
 	
-	// Process video with different qualities (improved bitrates)
-	qualities := []VideoQualityConfig{
-		{Quality: models.Quality360p, Width: 640, Height: 360, Bitrate: "800k"},
-		{Quality: models.Quality720p, Width: 1280, Height: 720, Bitrate: "2500k"},
-		{Quality: models.Quality1080p, Width: 1920, Height: 1080, Bitrate: "5000k"},
+	// Get video info to determine target resolution
+	info, err := v.getVideoInfo(localVideoPath)
+	if err != nil {
+		return fmt.Errorf("failed to get video info: %v", err)
 	}
 	
-	var variants []models.VideoVariant
+	// Use source resolution if it's smaller than target
+	targetWidth := BestQualityConfig.Width
+	targetHeight := BestQualityConfig.Height
 	
-	for _, quality := range qualities {
-		variant, err := v.createOptimizedVideoVariant(localVideoPath, media.ID, quality, tempDir)
-		if err != nil {
-			log.Printf("❌ Failed to create %s variant: %v", quality.Quality, err)
-			continue
-		}
-		
-		variants = append(variants, *variant)
-		log.Printf("✅ Created %s variant: %s", quality.Quality, variant.URL)
+	if info.Width < targetWidth || info.Height < targetHeight {
+		targetWidth = info.Width
+		targetHeight = info.Height
+		log.Printf("📊 Using source resolution: %dx%d (smaller than target)", targetWidth, targetHeight)
+	} else {
+		log.Printf("📊 Using target resolution: %dx%d", targetWidth, targetHeight)
 	}
 	
-	log.Printf("✅ Video processing completed for: %s with %d variants", media.ID, len(variants))
+	// Create single best quality variant
+	variant, err := v.createBestQualityVariant(localVideoPath, media.ID, targetWidth, targetHeight, tempDir)
+	if err != nil {
+		log.Printf("❌ Failed to create best quality variant: %v", err)
+		return err
+	}
+	
+	log.Printf("✅ Created best quality variant: %s", variant.URL)
+	log.Printf("✅ Video processing completed for: %s", media.ID)
 	return nil
 }
 
@@ -385,86 +334,42 @@ func (v *VideoService) downloadVideoFromS3(s3URL, localPath string) error {
 	return nil
 }
 
-// createOptimizedVideoVariant creates an optimized video variant using FFmpeg
-func (v *VideoService) createOptimizedVideoVariant(inputPath, mediaID string, quality VideoQualityConfig, tempDir string) (*models.VideoVariant, error) {
-	outputFilename := fmt.Sprintf("%s_%s.mp4", mediaID, quality.Quality)
-	outputPath := filepath.Join(tempDir, outputFilename)
-	
-	log.Printf("🎬 Creating %s variant: %s", quality.Quality, outputPath)
-	
-	// FFmpeg command for high-quality video processing
-	// Using optimized settings for better quality
-	cmd := exec.Command(v.ffmpegPath,
-		"-i", inputPath,
-		"-c:v", "libx264",           // H.264 video codec
-		"-preset", "slow",           // Better quality than medium
-		"-crf", "18",                // Lower CRF = better quality (18 is visually lossless)
-		"-c:a", "aac",               // AAC audio codec
-		"-b:a", "192k",              // Higher audio bitrate
-		"-vf", fmt.Sprintf("scale=%d:%d:flags=lanczos:force_original_aspect_ratio=decrease", quality.Width, quality.Height), // Better scaling with aspect ratio preservation
-		"-maxrate", fmt.Sprintf("%dk", parseBitrate(quality.Bitrate)/1000), // Max bitrate
-		"-bufsize", fmt.Sprintf("%dk", parseBitrate(quality.Bitrate)/500),  // Buffer size
-		"-movflags", "+faststart",   // Optimize for web streaming
-		"-profile:v", "high",        // High profile for better compatibility
-		"-level", "4.1",             // H.264 level 4.1 for better compatibility
-		"-pix_fmt", "yuv420p",       // Standard pixel format
-		"-f", "mp4",                 // Force MP4 format
-		"-y",                        // Overwrite output file
-		outputPath,
-	)
-	
-	// Capture FFmpeg output for debugging
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("❌ FFmpeg error output: %s", string(output))
-		return nil, fmt.Errorf("ffmpeg failed: %v", err)
-	}
-	
-	log.Printf("✅ FFmpeg processing completed for %s", quality.Quality)
-	
-	// Get file size
-	fileInfo, err := os.Stat(outputPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get file info: %v", err)
-	}
-	
-	// Upload processed video to S3
-	file, err := os.Open(outputPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open output file: %v", err)
-	}
-	defer file.Close()
-	
-	// Upload to S3 with quality-specific path
-	url, err := v.s3Service.UploadFileFromReader(file, outputFilename, "video/mp4", "videos/"+string(quality.Quality))
-	if err != nil {
-		return nil, fmt.Errorf("failed to upload variant to S3: %v", err)
-	}
-	
-	// Create video variant
-	variant := &models.VideoVariant{
-		ID:        generateVideoUniqueID(),
-		MediaID:   mediaID,
-		Quality:   quality.Quality,
-		Width:     quality.Width,
-		Height:    quality.Height,
-		Bitrate:   parseBitrate(quality.Bitrate),
-		URL:       url,
-		Size:      fileInfo.Size(),
-		CreatedAt: time.Now(),
-	}
-	
-	return variant, nil
-}
-
-// GetVideoVariants returns video variants for streaming
+// GetVideoVariants returns video variants for streaming (now only best quality)
 func (v *VideoService) GetVideoVariants(mediaID string) ([]models.VideoVariant, error) {
 	log.Printf("📺 Getting video variants for: %s", mediaID)
 	
-	// For now, return empty slice
-	// In a real implementation, you would:
-	// 1. Query database for video variants
-	// 2. Return the list of available qualities
-	
+	// For single quality, return empty slice
+	// The best quality video is accessed directly via /stream endpoint
 	return []models.VideoVariant{}, nil
+}
+
+type VideoInfo struct {
+	Width    int
+	Height   int
+	Duration float64
+}
+
+func parseBitrate(bitrateStr string) int {
+	// Remove 'k' suffix and convert to int
+	bitrateStr = strings.TrimSuffix(bitrateStr, "k")
+	if bitrate, err := strconv.Atoi(bitrateStr); err == nil {
+		return bitrate
+	}
+	return 0
+}
+
+func parseDuration(durationStr string) float64 {
+	// Parse duration like "00:01:30.00"
+	parts := strings.Split(durationStr, ":")
+	if len(parts) >= 3 {
+		hours, _ := strconv.Atoi(parts[0])
+		minutes, _ := strconv.Atoi(parts[1])
+		seconds, _ := strconv.ParseFloat(parts[2], 64)
+		return float64(hours*3600 + minutes*60) + seconds
+	}
+	return 0
+}
+
+func generateVideoUniqueID() string {
+	return fmt.Sprintf("%d", time.Now().UnixNano())
 } 
