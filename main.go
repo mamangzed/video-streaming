@@ -43,6 +43,14 @@ func main() {
 	router := routes.SetupRoutes(s3Service, videoService)
 	log.Println("✅ Routes configured successfully")
 
+	// Configure server for large file uploads
+	server := &http.Server{
+		Addr:    ":" + config.AppConfig.Port,
+		Handler: router,
+		// Increase limits for large file uploads
+		MaxHeaderBytes: 1 << 20, // 1MB header limit
+	}
+	
 	// Start server
 	port := ":" + config.AppConfig.Port
 	log.Printf(" Starting server on port %s", port)
@@ -56,7 +64,7 @@ func main() {
 	log.Printf("  GET    /health")
 	log.Printf("  GET    /")
 
-	if err := http.ListenAndServe(port, router); err != nil {
+	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("❌ Failed to start server: %v", err)
 	}
 }

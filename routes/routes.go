@@ -8,8 +8,21 @@ import (
 )
 
 func SetupRoutes(s3Service *services.S3Service, videoService *services.VideoService) *gin.Engine {
-	router := gin.Default()
-
+	// Configure Gin for large file uploads
+	gin.SetMode(gin.ReleaseMode)
+	
+	// Create router with custom configuration
+	router := gin.New()
+	
+	// Add recovery middleware
+	router.Use(gin.Recovery())
+	
+	// Add logger middleware
+	router.Use(gin.Logger())
+	
+	// Configure for large file uploads
+	router.MaxMultipartMemory = 1 << 30 // 1GB memory limit for multipart forms
+	
 	// CORS middleware
 	router.Use(func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
@@ -42,11 +55,19 @@ func SetupRoutes(s3Service *services.S3Service, videoService *services.VideoServ
 	// API routes
 	api := router.Group("/api/v1")
 	{
-		// Media upload
-		api.POST("/upload", mediaHandler.UploadMedia)
+		// Media upload with large file support
+		api.POST("/upload", func(c *gin.Context) {
+			// Set custom limits for this endpoint
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<30) // 1GB
+			mediaHandler.UploadMedia(c)
+		})
 		
 		// Direct upload without video optimization
-		api.POST("/upload-direct", mediaHandler.UploadMediaDirect)
+		api.POST("/upload-direct", func(c *gin.Context) {
+			// Set custom limits for this endpoint
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<30) // 1GB
+			mediaHandler.UploadMediaDirect(c)
+		})
 		
 		// Local upload (for testing without S3)
 		api.POST("/upload-local", mediaHandler.UploadMediaLocal)

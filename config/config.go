@@ -33,7 +33,7 @@ func LoadConfig() {
 		AWSSecretAccessKey: getEnv("AWS_SECRET_ACCESS_KEY", ""),
 		AWSS3Bucket:        getEnv("AWS_S3_BUCKET", ""),
 		Port:               getEnv("PORT", "8080"),
-		MaxFileSize:        parseFileSize(getEnv("MAX_FILE_SIZE", "100MB")),
+		MaxFileSize:        parseFileSize(getEnv("MAX_FILE_SIZE", "500MB")), // Increased to 500MB
 		FFmpegPath:         getEnv("FFMPEG_PATH", "/usr/bin/ffmpeg"),
 		EnableVideoProcessing: getEnvBool("ENABLE_VIDEO_PROCESSING", true),
 	}
@@ -67,12 +67,12 @@ func getEnvBool(key string, defaultValue bool) bool {
 
 func parseFileSize(sizeStr string) int64 {
 	if len(sizeStr) < 2 {
-		return 100 * 1024 * 1024 // Default 100MB
+		return 500 * 1024 * 1024 // Default 500MB
 	}
 
 	size, err := strconv.ParseInt(sizeStr[:len(sizeStr)-2], 10, 64)
 	if err != nil {
-		return 100 * 1024 * 1024 // Default 100MB
+		return 500 * 1024 * 1024 // Default 500MB
 	}
 
 	unit := sizeStr[len(sizeStr)-2:]
@@ -84,6 +84,6 @@ func parseFileSize(sizeStr string) int64 {
 	case "GB":
 		return size * 1024 * 1024 * 1024
 	default:
-		return 100 * 1024 * 1024 // Default 100MB
+		return 500 * 1024 * 1024 // Default 500MB
 	}
 }
