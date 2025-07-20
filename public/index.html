@@ -263,6 +263,7 @@
 
         <button class="btn" id="uploadBtn" disabled>Upload File (with optimization)</button>
         <button class="btn" id="uploadDirectBtn" disabled style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">Upload Direct (no optimization)</button>
+        <button class="btn" id="uploadLargeBtn" disabled style="background: linear-gradient(135deg, #dc3545 0%, #fd7e14 100%);">Upload Large File (no limit)</button>
         
         <div class="progress" id="progress">
             <div class="progress-bar" id="progressBar"></div>
@@ -290,6 +291,7 @@
         const fileInput = document.getElementById('fileInput');
         const uploadBtn = document.getElementById('uploadBtn');
         const uploadDirectBtn = document.getElementById('uploadDirectBtn');
+        const uploadLargeBtn = document.getElementById('uploadLargeBtn');
         const progress = document.getElementById('progress');
         const progressBar = document.getElementById('progressBar');
         const progressText = document.getElementById('progressText');
@@ -335,6 +337,7 @@
             selectedFile = file;
             uploadBtn.disabled = false;
             uploadDirectBtn.disabled = false;
+            uploadLargeBtn.disabled = false;
             
             // Update upload area text
             const uploadText = uploadArea.querySelector('.upload-text');
@@ -371,12 +374,14 @@
 
         uploadBtn.addEventListener('click', () => uploadFile('/api/v1/upload'));
         uploadDirectBtn.addEventListener('click', () => uploadFile('/api/v1/upload-direct'));
+        uploadLargeBtn.addEventListener('click', () => uploadFile('/api/v1/upload-large'));
 
         async function uploadFile(endpoint = '/api/v1/upload') {
             if (!selectedFile) return;
 
             uploadBtn.disabled = true;
             uploadDirectBtn.disabled = true;
+            uploadLargeBtn.disabled = true;
             progress.style.display = 'block';
             progressText.style.display = 'block';
             result.style.display = 'none';
@@ -384,7 +389,13 @@
 
             // Reset progress
             progressBar.style.width = '0%';
-            progressText.textContent = endpoint === '/api/v1/upload-direct' ? 'Uploading file directly (no optimization)...' : 'Uploading file...';
+            let uploadMessage = 'Uploading file...';
+            if (endpoint === '/api/v1/upload-direct') {
+                uploadMessage = 'Uploading file directly (no optimization)...';
+            } else if (endpoint === '/api/v1/upload-large') {
+                uploadMessage = 'Uploading large file (no size limit)...';
+            }
+            progressText.textContent = uploadMessage;
 
             const formData = new FormData();
             formData.append('file', selectedFile);
@@ -416,6 +427,7 @@
             } finally {
                 uploadBtn.disabled = false;
                 uploadDirectBtn.disabled = false;
+                uploadLargeBtn.disabled = false;
                 progress.style.display = 'none';
                 progressText.style.display = 'none';
             }

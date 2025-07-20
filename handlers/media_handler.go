@@ -357,6 +357,88 @@ func (h *MediaHandler) UploadMediaDirect(c *gin.Context) {
 	})
 }
 
+// UploadMediaLarge handles large file upload to S3 without any size restrictions
+func (h *MediaHandler) UploadMediaLarge(c *gin.Context) {
+	log.Println("📤 Starting large file upload (no size limit)...")
+	
+	// Get uploaded file
+	file, err := c.FormFile("file")
+	if err != nil {
+		log.Printf("❌ No file uploaded: %v", err)
+		c.JSON(http.StatusBadRequest, models.UploadResponse{
+			Success: false,
+			Message: "No file uploaded",
+		})
+		return
+	}
+
+	log.Printf("📁 Large file received: %s, Size: %d bytes (%d MB), Type: %s", 
+		file.Filename, file.Size, file.Size/(1024*1024), file.Header.Get("Content-Type"))
+
+	// Validate file type (skip size validation for large files)
+	contentType := file.Header.Get("Content-Type")
+	mediaType, err := h.validateFileType(contentType, file.Filename)
+	if err != nil {
+		log.Printf("❌ Invalid file type: %v", err)
+		c.JSON(http.StatusBadRequest, models.UploadResponse{
+			Success: false,
+			Message: err.Error(),
+		})
+		return
+	}
+
+	log.Printf("✅ Large file validation passed: %s", mediaType)
+
+	// Generate unique ID for media
+	mediaID := uuid.New().String()
+	log.Printf("🆔 Generated media ID: %s", mediaID)
+
+	// Check if S3 service is available
+	if h.s3Service == nil {
+		log.Printf("❌ S3 service not available")
+		c.JSON(http.StatusServiceUnavailable, models.UploadResponse{
+			Success: false,
+			Message: "S3 service not available",
+		})
+		return
+	}
+
+	// Upload directly to S3 without any processing
+	key := fmt.Sprintf("media/%s/%s", mediaID, file.Filename)
+	log.Printf("☁️ Uploading large file to S3: %s", key)
+	
+	uploadedURL, err := h.s3Service.UploadFile(file, key)
+	if err != nil {
+		log.Printf("❌ S3 upload failed: %v", err)
+		c.JSON(http.StatusInternalServerError, models.UploadResponse{
+			Success: false,
+			Message: "Failed to upload large file to S3",
+		})
+		return
+	}
+	
+	// Create media object
+	media := &models.Media{
+		ID:           mediaID,
+		Filename:     file.Filename,
+		OriginalName: file.Filename,
+		MediaType:    mediaType,
+		MimeType:     contentType,
+		Size:         file.Size,
+		URL:          uploadedURL,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+	}
+	
+	log.Printf("✅ Large file upload completed successfully: %s", media.URL)
+	
+	c.JSON(http.StatusOK, models.UploadResponse{
+		Success: true,
+		Message: fmt.Sprintf("Large file uploaded successfully (%d MB)", file.Size/(1024*1024)),
+		Media:   media,
+	})
+}
+
 // GetProcessingProgress returns the progress of video processing
 func (h *MediaHandler) GetProcessingProgress(c *gin.Context) {
 	mediaID := c.Param("id")

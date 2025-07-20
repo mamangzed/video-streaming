@@ -30,11 +30,25 @@ func SetupRoutes(s3Service *services.S3Service, videoService *services.VideoServ
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
 		
+		// Add headers for large file uploads
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "DENY")
+		
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
 		}
 		
+		c.Next()
+	})
+	
+	// Large file upload middleware
+	router.Use(func(c *gin.Context) {
+		// For upload endpoints, increase limits
+		if c.Request.URL.Path == "/api/v1/upload" || c.Request.URL.Path == "/api/v1/upload-direct" {
+			// Set larger limits for upload endpoints
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 2<<30) // 2GB
+		}
 		c.Next()
 	})
 
@@ -57,18 +71,13 @@ func SetupRoutes(s3Service *services.S3Service, videoService *services.VideoServ
 	api := router.Group("/api/v1")
 	{
 		// Media upload with large file support
-		api.POST("/upload", func(c *gin.Context) {
-			// Set custom limits for this endpoint
-			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<30) // 1GB
-			mediaHandler.UploadMedia(c)
-		})
+		api.POST("/upload", mediaHandler.UploadMedia)
 		
 		// Direct upload without video optimization
-		api.POST("/upload-direct", func(c *gin.Context) {
-			// Set custom limits for this endpoint
-			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<30) // 1GB
-			mediaHandler.UploadMediaDirect(c)
-		})
+		api.POST("/upload-direct", mediaHandler.UploadMediaDirect)
+		
+		// Large file upload endpoint (no size limit)
+		api.POST("/upload-large", mediaHandler.UploadMediaLarge)
 		
 		// Local upload (for testing without S3)
 		api.POST("/upload-local", mediaHandler.UploadMediaLocal)

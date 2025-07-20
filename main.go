@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"time"
 
 	"api-s3/config"
 	"api-s3/routes"
@@ -49,6 +50,10 @@ func main() {
 		Handler: router,
 		// Increase limits for large file uploads
 		MaxHeaderBytes: 1 << 20, // 1MB header limit
+		// Add timeout configurations
+		ReadTimeout:  30 * time.Minute, // 30 minutes for large uploads
+		WriteTimeout: 30 * time.Minute, // 30 minutes for large uploads
+		IdleTimeout:  60 * time.Second,
 	}
 	
 	// Start server
