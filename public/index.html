@@ -26,7 +26,7 @@
             border-radius: 20px;
             box-shadow: 0 20px 40px rgba(0,0,0,0.1);
             padding: 40px;
-            max-width: 600px;
+            max-width: 800px;
             width: 100%;
         }
 
@@ -121,6 +121,56 @@
             transition: width 0.3s ease;
         }
 
+        .progress-text {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+            color: #666;
+            display: none;
+        }
+
+        .processing-status {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 15px 0;
+            display: none;
+        }
+
+        .processing-status h4 {
+            color: #1976d2;
+            margin-bottom: 10px;
+        }
+
+        .processing-status .status-text {
+            color: #424242;
+            margin-bottom: 10px;
+        }
+
+        .processing-status .progress-detail {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .processing-status .progress-bar-small {
+            flex: 1;
+            height: 6px;
+            background-color: #e0e0e0;
+            border-radius: 3px;
+            margin: 0 10px;
+            overflow: hidden;
+        }
+
+        .processing-status .progress-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
         .result {
             margin-top: 20px;
             padding: 20px;
@@ -190,6 +240,14 @@
             border-radius: 10px;
             margin-top: 15px;
         }
+
+        .file-preview {
+            max-width: 200px;
+            max-height: 200px;
+            border-radius: 10px;
+            margin-top: 15px;
+            object-fit: cover;
+        }
     </style>
 </head>
 <body>
@@ -209,6 +267,20 @@
             <div class="progress-bar" id="progressBar"></div>
         </div>
 
+        <div class="progress-text" id="progressText"></div>
+
+        <div class="processing-status" id="processingStatus">
+            <h4>🎬 Video Processing</h4>
+            <div class="status-text" id="statusText">Starting video processing...</div>
+            <div class="progress-detail">
+                <span id="progressPercent">0%</span>
+                <div class="progress-bar-small">
+                    <div class="progress-fill" id="processingProgressBar"></div>
+                </div>
+                <span id="processingTime">00:00</span>
+            </div>
+        </div>
+
         <div class="result" id="result"></div>
     </div>
 
@@ -218,9 +290,17 @@
         const uploadBtn = document.getElementById('uploadBtn');
         const progress = document.getElementById('progress');
         const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        const processingStatus = document.getElementById('processingStatus');
+        const statusText = document.getElementById('statusText');
+        const processingProgressBar = document.getElementById('processingProgressBar');
+        const progressPercent = document.getElementById('progressPercent');
+        const processingTime = document.getElementById('processingTime');
         const result = document.getElementById('result');
 
         let selectedFile = null;
+        let processingInterval = null;
+        let startTime = null;
 
         // Drag and drop functionality
         uploadArea.addEventListener('click', () => fileInput.click());
@@ -259,6 +339,31 @@
             
             const uploadHint = uploadArea.querySelector('.upload-hint');
             uploadHint.textContent = `Size: ${formatFileSize(file.size)}`;
+            
+            // Show file preview
+            showFilePreview(file);
+        }
+
+        function showFilePreview(file) {
+            // Remove existing preview
+            const existingPreview = uploadArea.querySelector('.file-preview');
+            if (existingPreview) {
+                existingPreview.remove();
+            }
+
+            if (file.type.startsWith('image/')) {
+                const img = document.createElement('img');
+                img.className = 'file-preview';
+                img.src = URL.createObjectURL(file);
+                uploadArea.appendChild(img);
+            } else if (file.type.startsWith('video/')) {
+                const video = document.createElement('video');
+                video.className = 'file-preview';
+                video.src = URL.createObjectURL(file);
+                video.controls = true;
+                video.muted = true;
+                uploadArea.appendChild(video);
+            }
         }
 
         uploadBtn.addEventListener('click', uploadFile);
@@ -268,7 +373,13 @@
 
             uploadBtn.disabled = true;
             progress.style.display = 'block';
+            progressText.style.display = 'block';
             result.style.display = 'none';
+            processingStatus.style.display = 'none';
+
+            // Reset progress
+            progressBar.style.width = '0%';
+            progressText.textContent = 'Uploading file...';
 
             const formData = new FormData();
             formData.append('file', selectedFile);
@@ -282,9 +393,15 @@
                 const data = await response.json();
 
                 if (data.success) {
-                    showResult(data, 'success');
-                    if (data.media.media_type === 'video') {
-                        showVideoInfo(data.media);
+                    if (data.media.media_type === 'video' && !data.media.url) {
+                        // Video is being processed in background
+                        showVideoProcessing(data.media.id);
+                    } else {
+                        // File uploaded successfully
+                        showResult(data, 'success');
+                        if (data.media.media_type === 'video') {
+                            showVideoInfo(data.media);
+                        }
                     }
                 } else {
                     showResult(data, 'error');
@@ -294,6 +411,62 @@
             } finally {
                 uploadBtn.disabled = false;
                 progress.style.display = 'none';
+                progressText.style.display = 'none';
+            }
+        }
+
+        function showVideoProcessing(mediaId) {
+            processingStatus.style.display = 'block';
+            startTime = Date.now();
+            
+            // Start progress tracking
+            processingInterval = setInterval(() => {
+                updateProcessingProgress(mediaId);
+            }, 2000); // Check every 2 seconds
+        }
+
+        async function updateProcessingProgress(mediaId) {
+            try {
+                const response = await fetch(`/api/v1/media/${mediaId}/progress`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    const progress = data.progress || 0;
+                    const status = data.status || 'processing';
+                    const message = data.message || 'Processing video...';
+                    
+                    // Update UI
+                    statusText.textContent = message;
+                    processingProgressBar.style.width = `${progress}%`;
+                    progressPercent.textContent = `${progress}%`;
+                    
+                    // Update timer
+                    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                    const minutes = Math.floor(elapsed / 60);
+                    const seconds = elapsed % 60;
+                    processingTime.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                    
+                    // Check if processing is complete
+                    if (status === 'completed') {
+                        clearInterval(processingInterval);
+                        processingStatus.style.display = 'none';
+                        
+                        // Fetch final media info
+                        const finalResponse = await fetch(`/api/v1/media/${mediaId}`);
+                        const finalData = await finalResponse.json();
+                        
+                        if (finalData.success) {
+                            showResult(finalData, 'success');
+                            showVideoInfo(finalData.media);
+                        }
+                    } else if (status === 'failed') {
+                        clearInterval(processingInterval);
+                        processingStatus.style.display = 'none';
+                        showResult({ message: 'Video processing failed' }, 'error');
+                    }
+                }
+            } catch (error) {
+                console.error('Error updating progress:', error);
             }
         }
 
@@ -311,7 +484,7 @@
                         <p><strong>Name:</strong> ${data.media.original_name}</p>
                         <p><strong>Type:</strong> ${data.media.media_type}</p>
                         <p><strong>Size:</strong> ${formatFileSize(data.media.size)}</p>
-                        <p><strong>URL:</strong> <a href="${data.media.url}" target="_blank">View File</a></p>
+                        ${data.media.url ? `<p><strong>URL:</strong> <a href="${data.media.url}" target="_blank">View File</a></p>` : ''}
                     </div>
                 `;
             } else {

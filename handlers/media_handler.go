@@ -89,124 +89,41 @@ func (h *MediaHandler) UploadMedia(c *gin.Context) {
 		return
 	}
 
-	// For videos, process with FFmpeg first before uploading
-	var uploadedURL string
-	var finalFilename string
-	var finalMimeType string
-	
+	// For videos, start background processing and return immediately
 	if mediaType == models.MediaTypeVideo {
-		log.Printf("🎬 Processing video with FFmpeg before upload...")
+		log.Printf("🎬 Starting background video processing...")
 		
-		// Create temp directory for processing
-		tempDir := "temp"
-		if err := os.MkdirAll(tempDir, 0755); err != nil {
-			log.Printf("❌ Failed to create temp directory: %v", err)
-			c.JSON(http.StatusInternalServerError, models.UploadResponse{
-				Success: false,
-				Message: "Failed to create temp directory",
-			})
-			return
-		}
-		defer os.RemoveAll(tempDir)
-		
-		// Save uploaded file to temp directory
-		tempInputPath := filepath.Join(tempDir, file.Filename)
-		if err := c.SaveUploadedFile(file, tempInputPath); err != nil {
-			log.Printf("❌ Failed to save temp file: %v", err)
-			c.JSON(http.StatusInternalServerError, models.UploadResponse{
-				Success: false,
-				Message: "Failed to save temp file",
-			})
-			return
-		}
-		
-		// Process video with FFmpeg to optimal MP4 format
-		outputFilename := fmt.Sprintf("%s_optimized.mp4", mediaID)
-		outputPath := filepath.Join(tempDir, outputFilename)
-		
-		log.Printf("🎬 Converting to optimal MP4 format...")
-		cmd := exec.Command("ffmpeg",
-			"-i", tempInputPath,
-			"-vcodec", "libx264",        // H.264 video codec
-			"-acodec", "aac",            // AAC audio codec
-			"-strict", "-2",             // Allow experimental codecs
-			"-b:v", "3M",                // Video bitrate 3Mbps
-			"-b:a", "192k",              // Audio bitrate 192kbps
-			"-f", "mp4",                 // Force MP4 format
-			"-movflags", "+faststart",   // Optimize for web streaming
-			"-preset", "medium",         // Encoding preset
-			"-crf", "23",                // Constant Rate Factor
-			"-y",                        // Overwrite output file
-			outputPath,
-		)
-		
-		// Set a timeout for FFmpeg processing (5 minutes)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		cmd = exec.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
-		
-		log.Printf("⏱️ Starting FFmpeg processing (timeout: 5 minutes)...")
-		log.Printf("📊 Input file size: %d bytes", file.Size)
-		
-		// Capture FFmpeg output for debugging
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			if ctx.Err() == context.DeadlineExceeded {
-				log.Printf("❌ FFmpeg processing timed out after 5 minutes")
-				c.JSON(http.StatusRequestTimeout, models.UploadResponse{
-					Success: false,
-					Message: "Video processing timed out. Please try with a smaller video file.",
-				})
-				return
+		// Start background processing
+		go func() {
+			if err := h.processVideoInBackground(mediaID, file, c); err != nil {
+				log.Printf("❌ Background video processing failed: %v", err)
 			}
-			log.Printf("❌ FFmpeg error output: %s", string(output))
-			c.JSON(http.StatusInternalServerError, models.UploadResponse{
-				Success: false,
-				Message: "Failed to process video with FFmpeg",
-			})
-			return
-		}
+		}()
 		
-		log.Printf("✅ FFmpeg processing completed successfully")
-		
-		log.Printf("✅ Video processing completed")
-		
-		// Upload processed video to S3
-		key := fmt.Sprintf("media/%s/%s", mediaID, outputFilename)
-		log.Printf("☁️ Uploading processed video to S3: %s", key)
-		
-		// Open processed file and upload
-		processedFile, err := os.Open(outputPath)
-		if err != nil {
-			log.Printf("❌ Failed to open processed file: %v", err)
-			c.JSON(http.StatusInternalServerError, models.UploadResponse{
-				Success: false,
-				Message: "Failed to open processed file",
-			})
-			return
-		}
-		defer processedFile.Close()
-		
-		uploadedURL, err = h.s3Service.UploadFileFromReader(processedFile, outputFilename, "video/mp4", "media/"+mediaID)
-		if err != nil {
-			log.Printf("❌ S3 upload failed: %v", err)
-			c.JSON(http.StatusInternalServerError, models.UploadResponse{
-				Success: false,
-				Message: "Failed to upload processed video to S3",
-			})
-			return
-		}
-		
-		// Set processed file info
-		finalFilename = outputFilename
-		finalMimeType = "video/mp4"
+		// Return immediately with processing status
+		c.JSON(http.StatusAccepted, models.UploadResponse{
+			Success: true,
+			Message: "Video upload started. Processing in background. Check progress at /api/v1/media/" + mediaID + "/progress",
+			Media: &models.Media{
+				ID:           mediaID,
+				Filename:     file.Filename,
+				OriginalName: file.Filename,
+				MediaType:    mediaType,
+				MimeType:     contentType,
+				Size:         file.Size,
+				URL:          "", // Will be updated when processing completes
+				CreatedAt:    time.Now(),
+				UpdatedAt:    time.Now(),
+			},
+		})
+		return
 		
 	} else {
 		// For non-video files, upload directly
 		key := fmt.Sprintf("media/%s/%s", mediaID, file.Filename)
 		log.Printf("☁️ Uploading to S3: %s", key)
 		
-		uploadedURL, err = h.s3Service.UploadFile(file, key)
+		uploadedURL, err := h.s3Service.UploadFile(file, key)
 		if err != nil {
 			log.Printf("❌ S3 upload failed: %v", err)
 			c.JSON(http.StatusInternalServerError, models.UploadResponse{
@@ -216,9 +133,27 @@ func (h *MediaHandler) UploadMedia(c *gin.Context) {
 			return
 		}
 		
-		// Set original file info
-		finalFilename = file.Filename
-		finalMimeType = contentType
+		// Create media object for non-video files
+		media := &models.Media{
+			ID:           mediaID,
+			Filename:     file.Filename,
+			OriginalName: file.Filename,
+			MediaType:    mediaType,
+			MimeType:     contentType,
+			Size:         file.Size,
+			URL:          uploadedURL,
+			CreatedAt:    time.Now(),
+			UpdatedAt:    time.Now(),
+		}
+		
+		log.Printf("✅ Upload completed successfully: %s", media.URL)
+		
+		c.JSON(http.StatusOK, models.UploadResponse{
+			Success: true,
+			Message: "File uploaded successfully",
+			Media:   media,
+		})
+		return
 	}
 
 	log.Printf("✅ S3 upload successful: %s", uploadedURL)
@@ -245,6 +180,206 @@ func (h *MediaHandler) UploadMedia(c *gin.Context) {
 		Success: true,
 		Message: "File uploaded successfully",
 		Media:   media,
+	})
+}
+
+// processVideoInBackground processes video in background
+func (h *MediaHandler) processVideoInBackground(mediaID string, file *multipart.FileHeader, c *gin.Context) error {
+	log.Printf("🎬 Starting background video processing for: %s", mediaID)
+	
+	// Create temp directory for processing with unique timestamp
+	timestamp := time.Now().Unix()
+	tempDir := fmt.Sprintf("temp_%s_%d", mediaID, timestamp)
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		log.Printf("❌ Failed to create temp directory: %v", err)
+		return err
+	}
+	defer os.RemoveAll(tempDir)
+	
+	// Save uploaded file to temp directory with unique name
+	uniqueFilename := fmt.Sprintf("%s_%d_%s", mediaID, timestamp, file.Filename)
+	tempInputPath := filepath.Join(tempDir, uniqueFilename)
+	if err := c.SaveUploadedFile(file, tempInputPath); err != nil {
+		log.Printf("❌ Failed to save temp file: %v", err)
+		return err
+	}
+	
+	// Process video with FFmpeg to optimal MP4 format
+	outputFilename := fmt.Sprintf("%s_optimized.mp4", mediaID)
+	outputPath := filepath.Join(tempDir, outputFilename)
+	
+	log.Printf("🎬 Converting to optimal MP4 format...")
+	cmd := exec.Command("ffmpeg",
+		"-i", tempInputPath,
+		"-vcodec", "libx264",        // H.264 video codec
+		"-acodec", "aac",            // AAC audio codec
+		"-strict", "-2",             // Allow experimental codecs
+		"-b:v", "3M",                // Video bitrate 3Mbps
+		"-b:a", "192k",              // Audio bitrate 192kbps
+		"-f", "mp4",                 // Force MP4 format
+		"-movflags", "+faststart",   // Optimize for web streaming
+		"-preset", "medium",         // Encoding preset
+		"-crf", "23",                // Constant Rate Factor
+		"-y",                        // Overwrite output file
+		outputPath,
+	)
+	
+	// Set a timeout for FFmpeg processing (5 minutes)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	cmd = exec.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
+	
+	log.Printf("⏱️ Starting FFmpeg processing (timeout: 5 minutes)...")
+	log.Printf("📊 Input file size: %d bytes", file.Size)
+	
+	// Capture FFmpeg output for debugging
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			log.Printf("❌ FFmpeg processing timed out after 5 minutes")
+			return fmt.Errorf("FFmpeg processing timed out")
+		}
+		log.Printf("❌ FFmpeg error output: %s", string(output))
+		return fmt.Errorf("FFmpeg failed: %v", err)
+	}
+	
+	log.Printf("✅ FFmpeg processing completed successfully")
+	
+	// Upload processed video to S3
+	key := fmt.Sprintf("media/%s/%s", mediaID, outputFilename)
+	log.Printf("☁️ Uploading processed video to S3: %s", key)
+	
+	// Open processed file and upload
+	processedFile, err := os.Open(outputPath)
+	if err != nil {
+		log.Printf("❌ Failed to open processed file: %v", err)
+		return err
+	}
+	defer processedFile.Close()
+	
+	uploadedURL, err := h.s3Service.UploadFileFromReader(processedFile, outputFilename, "video/mp4", "media/"+mediaID)
+	if err != nil {
+		log.Printf("❌ S3 upload failed: %v", err)
+		return err
+	}
+	
+	log.Printf("✅ Background video processing completed: %s", uploadedURL)
+	return nil
+}
+
+// GetProcessingProgress returns the progress of video processing
+func (h *MediaHandler) GetProcessingProgress(c *gin.Context) {
+	mediaID := c.Param("id")
+	log.Printf("📊 Getting processing progress for: %s", mediaID)
+	
+	// Check if processed video exists in S3
+	processedKey := fmt.Sprintf("media/%s/%s_optimized.mp4", mediaID, mediaID)
+	exists, err := h.s3Service.FileExists(processedKey)
+	if err != nil {
+		log.Printf("❌ Error checking file existence: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Error checking processing status",
+		})
+		return
+	}
+	
+	if exists {
+		// Processing completed
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"media_id": mediaID,
+			"status": "completed",
+			"progress": 100,
+			"message": "Video processing completed successfully!",
+		})
+	} else {
+		// Still processing
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"media_id": mediaID,
+			"status": "processing",
+			"progress": 75, // Estimate based on typical processing time
+			"message": "Video is being processed with FFmpeg...",
+		})
+	}
+}
+
+// GetMediaInfo returns information about a specific media file
+func (h *MediaHandler) GetMediaInfo(c *gin.Context) {
+	mediaID := c.Param("id")
+	log.Printf("📋 Getting media info for: %s", mediaID)
+	
+	// List objects in the media directory to find the file
+	objects, err := h.s3Service.ListObjects("media/" + mediaID)
+	if err != nil {
+		log.Printf("❌ Error listing objects: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Error retrieving media info",
+		})
+		return
+	}
+	
+	if len(objects) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"message": "Media not found",
+		})
+		return
+	}
+	
+	// Find the processed video file
+	var mediaURL string
+	var filename string
+	var mimeType string
+	
+	for _, obj := range objects {
+		if strings.Contains(*obj.Key, "_optimized.mp4") {
+			// This is the processed video
+			url, err := h.s3Service.GeneratePresignedURL(*obj.Key, 24*time.Hour)
+			if err != nil {
+				log.Printf("❌ Error generating presigned URL: %v", err)
+				continue
+			}
+			mediaURL = url
+			filename = filepath.Base(*obj.Key)
+			mimeType = "video/mp4"
+			break
+		}
+	}
+	
+	if mediaURL == "" {
+		// Fallback to original file
+		for _, obj := range objects {
+			url, err := h.s3Service.GeneratePresignedURL(*obj.Key, 24*time.Hour)
+			if err != nil {
+				log.Printf("❌ Error generating presigned URL: %v", err)
+				continue
+			}
+			mediaURL = url
+			filename = filepath.Base(*obj.Key)
+			mimeType = "video/mp4" // Default to video
+			break
+		}
+	}
+	
+	media := &models.Media{
+		ID:           mediaID,
+		Filename:     filename,
+		OriginalName: filename,
+		MediaType:    models.MediaTypeVideo,
+		MimeType:     mimeType,
+		Size:         0, // We don't have size info from listing
+		URL:          mediaURL,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+	}
+	
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Media info retrieved successfully",
+		"media":   media,
 	})
 }
 

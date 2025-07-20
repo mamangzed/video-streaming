@@ -55,6 +55,8 @@ func SetupRoutes(s3Service *services.S3Service, videoService *services.VideoServ
 		api.GET("/media/:id/stream", mediaHandler.GetVideoStream)
 		api.GET("/media/:id/stream/:quality", mediaHandler.StreamVideo)
 		api.GET("/media/:id/thumbnail", mediaHandler.GetThumbnail)
+		api.GET("/media/:id/progress", mediaHandler.GetProcessingProgress)
+		api.GET("/media/:id", mediaHandler.GetMediaInfo)
 	}
 
 	// Health check
