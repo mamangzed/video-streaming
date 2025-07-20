@@ -247,11 +247,10 @@ func (h *MediaHandler) GetProcessingProgress(c *gin.Context) {
 	mediaID := c.Param("id")
 	log.Printf("📊 Getting processing progress for: %s", mediaID)
 	
-	// Check if processed video exists in S3
-	processedKey := fmt.Sprintf("media/%s/%s_optimized.mp4", mediaID, mediaID)
-	exists, err := h.s3Service.FileExists(processedKey)
+	// List objects in the media directory to find any processed video
+	objects, err := h.s3Service.ListObjects("media/" + mediaID)
 	if err != nil {
-		log.Printf("❌ Error checking file existence: %v", err)
+		log.Printf("❌ Error listing objects: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"message": "Error checking processing status",
@@ -259,7 +258,17 @@ func (h *MediaHandler) GetProcessingProgress(c *gin.Context) {
 		return
 	}
 	
-	if exists {
+	// Check if any MP4 file exists (processed video)
+	var hasProcessedVideo bool
+	for _, objKey := range objects {
+		if strings.HasSuffix(objKey, ".mp4") {
+			hasProcessedVideo = true
+			log.Printf("✅ Found processed video: %s", objKey)
+			break
+		}
+	}
+	
+	if hasProcessedVideo {
 		// Processing completed
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
@@ -309,8 +318,9 @@ func (h *MediaHandler) GetMediaInfo(c *gin.Context) {
 	var filename string
 	var mimeType string
 	
+	// First try to find any MP4 file (processed video)
 	for _, objKey := range objects {
-		if strings.Contains(objKey, "_optimized.mp4") {
+		if strings.HasSuffix(objKey, ".mp4") {
 			// This is the processed video
 			url, err := h.s3Service.GeneratePresignedURL(objKey, 24*time.Hour)
 			if err != nil {
@@ -320,22 +330,27 @@ func (h *MediaHandler) GetMediaInfo(c *gin.Context) {
 			mediaURL = url
 			filename = filepath.Base(objKey)
 			mimeType = "video/mp4"
+			log.Printf("✅ Found processed video: %s", objKey)
 			break
 		}
 	}
 	
+	// If no MP4 found, try any other video file
 	if mediaURL == "" {
-		// Fallback to original file
 		for _, objKey := range objects {
-			url, err := h.s3Service.GeneratePresignedURL(objKey, 24*time.Hour)
-			if err != nil {
-				log.Printf("❌ Error generating presigned URL: %v", err)
-				continue
+			if strings.Contains(objKey, ".mp4") || strings.Contains(objKey, ".mov") || 
+			   strings.Contains(objKey, ".avi") || strings.Contains(objKey, ".mkv") {
+				url, err := h.s3Service.GeneratePresignedURL(objKey, 24*time.Hour)
+				if err != nil {
+					log.Printf("❌ Error generating presigned URL: %v", err)
+					continue
+				}
+				mediaURL = url
+				filename = filepath.Base(objKey)
+				mimeType = "video/mp4" // Default to video
+				log.Printf("✅ Found video file: %s", objKey)
+				break
 			}
-			mediaURL = url
-			filename = filepath.Base(objKey)
-			mimeType = "video/mp4" // Default to video
-			break
 		}
 	}
 	
