@@ -232,37 +232,41 @@ func (h *MediaHandler) processVideoInBackground(mediaID string, file *multipart.
 	
 	log.Printf("🎬 Converting to optimal MP4 format...")
 	
-	// Optimize FFmpeg settings for better quality
-	// Use balanced preset for good quality and reasonable processing time
-	preset := "medium"
-	crf := "20" // Lower CRF = better quality (20 is high quality)
+	// Optimize FFmpeg settings for SPEED while maintaining good quality
+	preset := "ultrafast"  // Changed from medium/slow to ultrafast
+	crf := "28"           // Changed from 18-22 to 28 (faster, still good quality)
 	
-	// For large files, use faster preset but maintain good quality
-	if file.Size > 100*1024*1024 { // 100MB
-		preset = "fast"
-		crf = "22" // Still good quality
-		log.Printf("📊 Large file detected (%d MB), using fast preset with good quality", file.Size/(1024*1024))
+	// For very large files, use even lower quality for speed
+	if file.Size > 200*1024*1024 { // 200MB
+		preset = "ultrafast"
+		crf = "35" // Lower quality but very fast
+		log.Printf("📊 Very large file detected, using maximum speed settings")
+	} else if file.Size > 100*1024*1024 { // 100MB
+		preset = "ultrafast"
+		crf = "30" // Good quality, very fast
+		log.Printf("📊 Large file detected (%d MB), using ultrafast preset for speed", file.Size/(1024*1024))
 	} else if file.Size > 50*1024*1024 { // 50MB
-		preset = "medium"
-		crf = "20" // High quality for medium files
-		log.Printf("📊 Medium file detected (%d MB), using medium preset with high quality", file.Size/(1024*1024))
+		preset = "veryfast"
+		crf = "28" // Good quality, fast
+		log.Printf("📊 Medium file detected (%d MB), using veryfast preset", file.Size/(1024*1024))
 	} else {
-		preset = "slow"
-		crf = "18" // Very high quality for small files
-		log.Printf("📊 Small file detected (%d MB), using slow preset with very high quality", file.Size/(1024*1024))
+		preset = "fast"
+		crf = "26" // Good quality, reasonable speed
+		log.Printf("📊 Small file detected (%d MB), using fast preset", file.Size/(1024*1024))
 	}
 	
+	// Optimized FFmpeg command for speed
 	cmd := exec.Command("ffmpeg",
 		"-i", tempInputPath,
 		"-c:v", "libx264",           // H.264 video codec
-		"-preset", preset,           // Use preset based on file size
-		"-crf", crf,                 // CRF based on file size
+		"-preset", preset,           // Use ultrafast/veryfast for speed
+		"-crf", crf,                 // Higher CRF = faster encoding
 		"-c:a", "aac",               // AAC audio codec
-		"-b:a", "192k",              // Higher audio bitrate for better quality
-		"-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos", // Better scaling with aspect ratio preservation
+		"-b:a", "128k",              // Reduced audio bitrate for speed
+		"-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=fast_bilinear", // Faster scaling
 		"-movflags", "+faststart",   // Optimize for web streaming
-		"-profile:v", "high",        // High profile for better compatibility
-		"-level", "4.1",             // H.264 level 4.1 for better compatibility
+		"-profile:v", "baseline",    // Baseline profile for faster encoding
+		"-level", "3.1",             // Lower level for faster encoding
 		"-pix_fmt", "yuv420p",       // Standard pixel format
 		"-threads", "0",             // Use all available CPU threads
 		"-f", "mp4",                 // Force MP4 format
