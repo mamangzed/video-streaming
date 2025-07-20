@@ -1,9 +1,10 @@
 {
 	"info": {
 		"_postman_id": "api-s3-collection",
-		"name": "API S3 - Video & Image Upload",
-		"description": "Collection for testing API S3 endpoints",
-		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+		"name": "API S3 - Video & Image Upload Service",
+		"description": "Complete API collection for S3 upload and video processing service",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "api-s3"
 	},
 	"item": [
 		{
@@ -19,12 +20,13 @@
 					"path": [
 						"health"
 					]
-				}
+				},
+				"description": "Check if the API is running and healthy"
 			},
 			"response": []
 		},
 		{
-			"name": "Upload File",
+			"name": "Upload Media (with Video Optimization)",
 			"request": {
 				"method": "POST",
 				"header": [],
@@ -34,7 +36,8 @@
 						{
 							"key": "file",
 							"type": "file",
-							"src": []
+							"src": [],
+							"description": "File to upload (image or video)"
 						}
 					]
 				},
@@ -48,7 +51,144 @@
 						"v1",
 						"upload"
 					]
-				}
+				},
+				"description": "Upload file with automatic video optimization using FFmpeg. Videos will be processed in background."
+			},
+			"response": []
+		},
+		{
+			"name": "Upload Direct (No Optimization)",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "file",
+							"type": "file",
+							"src": [],
+							"description": "File to upload directly without processing"
+						}
+					]
+				},
+				"url": {
+					"raw": "{{base_url}}/api/v1/upload-direct",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"v1",
+						"upload-direct"
+					]
+				},
+				"description": "Upload file directly to S3 without any video optimization"
+			},
+			"response": []
+		},
+		{
+			"name": "Upload Large File (No Size Limit)",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "file",
+							"type": "file",
+							"src": [],
+							"description": "Large file to upload without size restrictions"
+						}
+					]
+				},
+				"url": {
+					"raw": "{{base_url}}/api/v1/upload-large",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"v1",
+						"upload-large"
+					]
+				},
+				"description": "Upload large files without size limitations"
+			},
+			"response": []
+		},
+		{
+			"name": "Upload Local (Testing)",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "file",
+							"type": "file",
+							"src": [],
+							"description": "File to upload to local storage for testing"
+						}
+					]
+				},
+				"url": {
+					"raw": "{{base_url}}/api/v1/upload-local",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"v1",
+						"upload-local"
+					]
+				},
+				"description": "Upload file to local storage for testing without S3"
+			},
+			"response": []
+		},
+		{
+			"name": "Get Media Info",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/v1/media/{{media_id}}",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"v1",
+						"media",
+						"{{media_id}}"
+					]
+				},
+				"description": "Get detailed information about a media file"
+			},
+			"response": []
+		},
+		{
+			"name": "Get Processing Progress",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/v1/media/{{media_id}}/progress",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"v1",
+						"media",
+						"{{media_id}}",
+						"progress"
+					]
+				},
+				"description": "Get video processing progress for a media file"
 			},
 			"response": []
 		},
@@ -69,17 +209,24 @@
 						"{{media_id}}",
 						"stream"
 					]
-				}
+				},
+				"description": "Get video streaming information with available qualities"
 			},
 			"response": []
 		},
 		{
-			"name": "Stream Video",
+			"name": "Stream Video (720p)",
 			"request": {
 				"method": "GET",
-				"header": [],
+				"header": [
+					{
+						"key": "Range",
+						"value": "bytes=0-",
+						"description": "Range header for video streaming"
+					}
+				],
 				"url": {
-					"raw": "{{base_url}}/api/v1/media/{{media_id}}/stream/{{quality}}",
+					"raw": "{{base_url}}/api/v1/media/{{media_id}}/stream/720p",
 					"host": [
 						"{{base_url}}"
 					],
@@ -89,9 +236,39 @@
 						"media",
 						"{{media_id}}",
 						"stream",
-						"{{quality}}"
+						"720p"
 					]
-				}
+				},
+				"description": "Stream video at 720p quality with HTTP Range support"
+			},
+			"response": []
+		},
+		{
+			"name": "Stream Video (1080p)",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Range",
+						"value": "bytes=0-",
+						"description": "Range header for video streaming"
+					}
+				],
+				"url": {
+					"raw": "{{base_url}}/api/v1/media/{{media_id}}/stream/1080p",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"api",
+						"v1",
+						"media",
+						"{{media_id}}",
+						"stream",
+						"1080p"
+					]
+				},
+				"description": "Stream video at 1080p quality with HTTP Range support"
 			},
 			"response": []
 		},
@@ -112,7 +289,8 @@
 						"{{media_id}}",
 						"thumbnail"
 					]
-				}
+				},
+				"description": "Get video thumbnail image"
 			},
 			"response": []
 		},
@@ -132,7 +310,8 @@
 						"media",
 						"{{media_id}}"
 					]
-				}
+				},
+				"description": "Delete media file from S3"
 			},
 			"response": []
 		}
@@ -143,7 +322,11 @@
 			"script": {
 				"type": "text/javascript",
 				"exec": [
-					""
+					"// Set default headers for all requests",
+					"pm.request.headers.add({",
+					"    key: 'Accept',",
+					"    value: 'application/json'",
+					"});"
 				]
 			}
 		},
@@ -152,7 +335,35 @@
 			"script": {
 				"type": "text/javascript",
 				"exec": [
-					""
+					"// Common test script for all requests",
+					"pm.test('Status code is valid', function () {",
+					"    pm.response.to.have.status(200, 202, 400, 404, 413, 500, 503);",
+					"});",
+					"",
+					"pm.test('Response time is less than 30 seconds', function () {",
+					"    pm.expect(pm.response.responseTime).to.be.below(30000);",
+					"});",
+					"",
+					"// Test for JSON responses",
+					"if (pm.response.headers.get('Content-Type') && pm.response.headers.get('Content-Type').includes('application/json')) {",
+					"    pm.test('Response is valid JSON', function () {",
+					"        pm.response.to.be.json;",
+					"    });",
+					"    ",
+					"    pm.test('Response has success field', function () {",
+					"        const jsonData = pm.response.json();",
+					"        pm.expect(jsonData).to.have.property('success');",
+					"    });",
+					"}",
+					"",
+					"// Auto-extract media_id from upload responses",
+					"if (pm.response.headers.get('Content-Type') && pm.response.headers.get('Content-Type').includes('application/json')) {",
+					"    const jsonData = pm.response.json();",
+					"    if (jsonData.success && jsonData.media && jsonData.media.id) {",
+					"        pm.environment.set('media_id', jsonData.media.id);",
+					"        console.log('Media ID extracted:', jsonData.media.id);",
+					"    }",
+					"}"
 				]
 			}
 		}
@@ -165,12 +376,7 @@
 		},
 		{
 			"key": "media_id",
-			"value": "your-media-id-here",
-			"type": "string"
-		},
-		{
-			"key": "quality",
-			"value": "720p",
+			"value": "",
 			"type": "string"
 		}
 	]

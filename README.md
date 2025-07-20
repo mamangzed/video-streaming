@@ -2,15 +2,18 @@
 
 API S3 adalah layanan upload dan streaming video/foto yang terintegrasi dengan AWS S3. Layanan ini mendukung upload file, delete, dan streaming video dengan berbagai kualitas seperti YouTube.
 
-## Fitur Utama
+## 🚀 Fitur Utama
 
-- ✅ **Upload File**: Mendukung upload gambar dan video
+- ✅ **Upload File**: Mendukung upload gambar dan video dengan progress tracking
 - ✅ **Delete File**: Hapus file dari S3
 - ✅ **Video Processing**: Transcoding video ke berbagai kualitas (144p, 240p, 360p, 480p, 720p, 1080p, 1440p, 2160p)
-- ✅ **Video Streaming**: Streaming video dengan HLS (HTTP Live Streaming)
+- ✅ **Video Streaming**: Streaming video dengan HTTP Range support
 - ✅ **Thumbnail Generation**: Generate thumbnail otomatis untuk video
 - ✅ **Presigned URLs**: URL aman untuk akses file
 - ✅ **CORS Support**: Cross-origin resource sharing
+- ✅ **Upload Speed Tracking**: Real-time upload speed dan ETA
+- ✅ **Background Processing**: Video processing di background dengan progress tracking
+- ✅ **Multiple Upload Options**: Upload dengan optimasi, tanpa optimasi, dan file besar
 
 ## Teknologi yang Digunakan
 
@@ -27,7 +30,11 @@ API S3 adalah layanan upload dan streaming video/foto yang terintegrasi dengan A
 3. **AWS Account** dengan S3 bucket
 4. **AWS Credentials** (Access Key ID dan Secret Access Key)
 
-## Instalasi
+## 📋 Dokumentasi Lengkap
+
+Untuk dokumentasi API yang lengkap, lihat: [API_DOCUMENTATION.md](./API_DOCUMENTATION.md)
+
+## 🛠️ Instalasi
 
 1. **Clone repository**
 ```bash
@@ -55,7 +62,7 @@ AWS_S3_BUCKET=your-bucket-name
 
 # Server Configuration
 PORT=8080
-MAX_FILE_SIZE=100MB
+MAX_FILE_SIZE=500MB
 
 # Video Processing Configuration
 FFMPEG_PATH=/usr/bin/ffmpeg
@@ -172,6 +179,44 @@ GET /api/v1/media/{id}/thumbnail
 ```http
 GET /health
 ```
+
+## 📊 Upload Speed Tracking
+
+API ini menampilkan informasi upload speed real-time:
+
+### Frontend Features
+- **Upload Speed**: Kecepatan upload dalam MB/s
+- **Upload Progress**: Progress bar dengan persentase
+- **ETA**: Estimasi waktu selesai
+- **File Size**: Ukuran file yang sudah diupload / total ukuran
+
+### Response Headers
+API menambahkan header informasi upload:
+- `X-Upload-Size`: Ukuran file yang diupload
+- `X-Upload-Time`: Timestamp upload selesai
+
+### Example Response
+```json
+{
+  "success": true,
+  "message": "File uploaded successfully",
+  "media": {
+    "id": "uuid",
+    "filename": "video.mp4",
+    "original_name": "video.mp4",
+    "media_type": "video",
+    "mime_type": "video/mp4",
+    "size": 52428800,
+    "url": "https://bucket.s3.region.amazonaws.com/media/uuid/video_optimized.mp4",
+    "created_at": "2024-01-01T00:00:00Z",
+    "updated_at": "2024-01-01T00:00:00Z"
+  }
+}
+```
+
+**Upload Stats (displayed in frontend):**
+- Upload Speed: 2.45 MB/s
+- Upload Time: 21.3 seconds
 
 ## Struktur S3 Bucket
 

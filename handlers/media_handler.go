@@ -90,35 +90,78 @@ func (h *MediaHandler) UploadMedia(c *gin.Context) {
 		return
 	}
 
-	// For videos, start background processing and return immediately
+	// For videos, check if video processing is enabled
 	if mediaType == models.MediaTypeVideo {
-		log.Printf("🎬 Starting background video processing...")
-		
-		// Start background processing
-		go func() {
-			if err := h.processVideoInBackground(mediaID, file, c); err != nil {
-				log.Printf("❌ Background video processing failed: %v", err)
+		if config.AppConfig.EnableVideoProcessing {
+			log.Printf("🎬 Video processing enabled, starting background processing...")
+			
+			// Start background processing
+			go func() {
+				if err := h.processVideoInBackground(mediaID, file, c); err != nil {
+					log.Printf("❌ Background video processing failed: %v", err)
+				}
+			}()
+			
+			// Return immediately with processing status
+			c.JSON(http.StatusAccepted, models.UploadResponse{
+				Success: true,
+				Message: "Video upload started. Processing in background. Check progress at /api/v1/media/" + mediaID + "/progress",
+				Media: &models.Media{
+					ID:           mediaID,
+					Filename:     file.Filename,
+					OriginalName: file.Filename,
+					MediaType:    mediaType,
+					MimeType:     contentType,
+					Size:         file.Size,
+					URL:          "", // Will be updated when processing completes
+					CreatedAt:    time.Now(),
+					UpdatedAt:    time.Now(),
+				},
+			})
+			return
+		} else {
+			log.Printf("🎬 Video processing disabled, uploading original video file...")
+			
+			// Upload original video file directly without processing
+			key := fmt.Sprintf("media/%s/%s", mediaID, file.Filename)
+			log.Printf("☁️ Uploading original video to S3: %s", key)
+			
+			uploadedURL, err := h.s3Service.UploadFile(file, key)
+			if err != nil {
+				log.Printf("❌ S3 upload failed: %v", err)
+				c.JSON(http.StatusInternalServerError, models.UploadResponse{
+					Success: false,
+					Message: "Failed to upload video to S3",
+				})
+				return
 			}
-		}()
-		
-		// Return immediately with processing status
-		c.JSON(http.StatusAccepted, models.UploadResponse{
-			Success: true,
-			Message: "Video upload started. Processing in background. Check progress at /api/v1/media/" + mediaID + "/progress",
-			Media: &models.Media{
+			
+			// Create media object for original video
+			media := &models.Media{
 				ID:           mediaID,
 				Filename:     file.Filename,
 				OriginalName: file.Filename,
 				MediaType:    mediaType,
 				MimeType:     contentType,
 				Size:         file.Size,
-				URL:          "", // Will be updated when processing completes
+				URL:          uploadedURL,
 				CreatedAt:    time.Now(),
 				UpdatedAt:    time.Now(),
-			},
-		})
-		return
-		
+			}
+			
+			log.Printf("✅ Original video upload completed successfully: %s", media.URL)
+			
+			// Add upload information headers
+			c.Header("X-Upload-Size", fmt.Sprintf("%d", file.Size))
+			c.Header("X-Upload-Time", time.Now().Format(time.RFC3339))
+			
+			c.JSON(http.StatusOK, models.UploadResponse{
+				Success: true,
+				Message: "Original video uploaded successfully (no processing)",
+				Media:   media,
+			})
+			return
+		}
 	} else {
 		// For non-video files, upload directly
 		key := fmt.Sprintf("media/%s/%s", mediaID, file.Filename)
