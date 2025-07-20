@@ -31,26 +31,23 @@ func NewVideoService(s3Service *S3Service) *VideoService {
 	}
 }
 
-type VideoQualityConfig struct {
-	Quality models.VideoQuality
+// Single best quality configuration
+var BestQualityConfig = struct {
 	Width   int
 	Height  int
 	Bitrate string
+	CRF     string
+	Preset  string
+}{
+	Width:   1920,  // 1080p as default
+	Height:  1080,
+	Bitrate: "5000k",
+	CRF:     "18",  // High quality
+	Preset:  "slow", // Best quality preset
 }
 
-var VideoQualities = []VideoQualityConfig{
-	{Quality: models.Quality144p, Width: 256, Height: 144, Bitrate: "200k"},
-	{Quality: models.Quality240p, Width: 426, Height: 240, Bitrate: "400k"},
-	{Quality: models.Quality360p, Width: 640, Height: 360, Bitrate: "800k"},
-	{Quality: models.Quality480p, Width: 854, Height: 480, Bitrate: "1200k"},
-	{Quality: models.Quality720p, Width: 1280, Height: 720, Bitrate: "2500k"},
-	{Quality: models.Quality1080p, Width: 1920, Height: 1080, Bitrate: "5000k"},
-	{Quality: models.Quality1440p, Width: 2560, Height: 1440, Bitrate: "8000k"},
-	{Quality: models.Quality2160p, Width: 3840, Height: 2160, Bitrate: "15000k"},
-}
-
-func (v *VideoService) ProcessVideo(inputPath, mediaID string) ([]models.VideoVariant, error) {
-	var variants []models.VideoVariant
+// ProcessVideo processes video to single best quality
+func (v *VideoService) ProcessVideo(inputPath, mediaID string) (*models.VideoVariant, error) {
 	tempDir := "temp"
 	
 	// Create temp directory if it doesn't exist
@@ -65,45 +62,51 @@ func (v *VideoService) ProcessVideo(inputPath, mediaID string) ([]models.VideoVa
 		return nil, fmt.Errorf("failed to get video info: %v", err)
 	}
 
-	// Process each quality
-	for _, quality := range VideoQualities {
-		// Skip if target quality is higher than source
-		if quality.Width > info.Width || quality.Height > info.Height {
-			continue
-		}
-
-		variant, err := v.createVideoVariant(inputPath, mediaID, quality, tempDir)
-		if err != nil {
-			log.Printf("Failed to create variant %s: %v", quality.Quality, err)
-			continue
-		}
-
-		variants = append(variants, *variant)
+	// Use source resolution if it's smaller than target
+	targetWidth := BestQualityConfig.Width
+	targetHeight := BestQualityConfig.Height
+	
+	if info.Width < targetWidth || info.Height < targetHeight {
+		targetWidth = info.Width
+		targetHeight = info.Height
+		log.Printf("📊 Using source resolution: %dx%d (smaller than target)", targetWidth, targetHeight)
+	} else {
+		log.Printf("📊 Using target resolution: %dx%d", targetWidth, targetHeight)
 	}
 
-	return variants, nil
+	// Create single high-quality variant
+	variant, err := v.createBestQualityVariant(inputPath, mediaID, targetWidth, targetHeight, tempDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create best quality variant: %v", err)
+	}
+
+	return variant, nil
 }
 
-func (v *VideoService) createVideoVariant(inputPath, mediaID string, quality VideoQualityConfig, tempDir string) (*models.VideoVariant, error) {
-	outputFilename := fmt.Sprintf("%s_%s.mp4", mediaID, quality.Quality)
+func (v *VideoService) createBestQualityVariant(inputPath, mediaID string, width, height int, tempDir string) (*models.VideoVariant, error) {
+	outputFilename := fmt.Sprintf("%s_best_quality.mp4", mediaID)
 	outputPath := filepath.Join(tempDir, outputFilename)
 
-	// FFmpeg command for high-quality video transcoding
+	log.Printf("🎬 Creating best quality video: %dx%d", width, height)
+
+	// FFmpeg command for best quality video transcoding
 	cmd := exec.Command(v.ffmpegPath,
 		"-i", inputPath,
-		"-c:v", "libx264",
-		"-preset", "slow",           // Better quality than medium
-		"-crf", "18",               // Lower CRF = better quality (18 is visually lossless)
-		"-c:a", "aac",
-		"-b:a", "192k",             // Higher audio bitrate
-		"-vf", fmt.Sprintf("scale=%d:%d:flags=lanczos", quality.Width, quality.Height), // Better scaling algorithm
-		"-maxrate", fmt.Sprintf("%dk", parseBitrate(quality.Bitrate)/1000), // Max bitrate
-		"-bufsize", fmt.Sprintf("%dk", parseBitrate(quality.Bitrate)/500),  // Buffer size
-		"-movflags", "+faststart",
-		"-profile:v", "high",       // High profile for better compatibility
-		"-level", "4.1",            // H.264 level 4.1 for better compatibility
-		"-pix_fmt", "yuv420p",      // Standard pixel format
-		"-y", // Overwrite output file
+		"-c:v", "libx264",           // H.264 video codec
+		"-preset", BestQualityConfig.Preset, // Best quality preset
+		"-crf", BestQualityConfig.CRF,       // High quality CRF
+		"-c:a", "aac",               // AAC audio codec
+		"-b:a", "192k",              // High audio bitrate
+		"-vf", fmt.Sprintf("scale=%d:%d:flags=lanczos:force_original_aspect_ratio=decrease", width, height), // Best scaling with aspect ratio preservation
+		"-maxrate", BestQualityConfig.Bitrate, // Max bitrate
+		"-bufsize", fmt.Sprintf("%dk", parseBitrate(BestQualityConfig.Bitrate)/2), // Buffer size
+		"-movflags", "+faststart",   // Optimize for web streaming
+		"-profile:v", "high",        // High profile for best compatibility
+		"-level", "4.1",             // H.264 level 4.1
+		"-pix_fmt", "yuv420p",       // Standard pixel format
+		"-threads", "0",             // Use all available CPU threads
+		"-f", "mp4",                 // Force MP4 format
+		"-y",                        // Overwrite output file
 		outputPath,
 	)
 
@@ -125,19 +128,20 @@ func (v *VideoService) createVideoVariant(inputPath, mediaID string, quality Vid
 	}
 	defer file.Close()
 
-	url, err := v.s3Service.UploadFileFromReader(file, outputFilename, "video/mp4", "videos/"+string(quality.Quality))
+	// Upload to videos/best_quality/ directory
+	url, err := v.s3Service.UploadFileFromReader(file, outputFilename, "video/mp4", "videos/best_quality")
 	if err != nil {
-		return nil, fmt.Errorf("failed to upload variant to S3: %v", err)
+		return nil, fmt.Errorf("failed to upload best quality video to S3: %v", err)
 	}
 
 	// Create video variant
 	variant := &models.VideoVariant{
 		ID:        generateVideoUniqueID(),
 		MediaID:   mediaID,
-		Quality:   quality.Quality,
-		Width:     quality.Width,
-		Height:    quality.Height,
-		Bitrate:   parseBitrate(quality.Bitrate),
+		Quality:   "best_quality", // Single quality
+		Width:     width,
+		Height:    height,
+		Bitrate:   parseBitrate(BestQualityConfig.Bitrate),
 		URL:       url,
 		Size:      fileInfo.Size(),
 		CreatedAt: time.Now(),

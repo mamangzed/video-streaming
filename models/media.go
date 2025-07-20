@@ -11,17 +11,11 @@ const (
 	MediaTypeVideo MediaType = "video"
 )
 
+// Remove multiple quality constants, keep only one
 type VideoQuality string
 
 const (
-	Quality144p  VideoQuality = "144p"
-	Quality240p  VideoQuality = "240p"
-	Quality360p  VideoQuality = "360p"
-	Quality480p  VideoQuality = "480p"
-	Quality720p  VideoQuality = "720p"
-	Quality1080p VideoQuality = "1080p"
-	Quality1440p VideoQuality = "1440p"
-	Quality2160p VideoQuality = "2160p"
+	QualityBest VideoQuality = "best_quality"
 )
 
 type Media struct {

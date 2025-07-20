@@ -692,14 +692,8 @@
                 <p><strong>Resolution:</strong> ${media.width || 'Unknown'}x${media.height || 'Unknown'}</p>
                 <p><strong>Size:</strong> ${formatFileSize(media.size)}</p>
                 ${media.thumbnail_url ? '<img src="' + media.thumbnail_url + '" alt="Thumbnail" class="thumbnail">' : ''}
-                <div class="quality-selector">
-                    <h4>Available Qualities:</h4>
-                    <button class="quality-btn" onclick="streamVideo('${media.id}', '360p')">360p</button>
-                    <button class="quality-btn" onclick="streamVideo('${media.id}', '720p')">720p</button>
-                    <button class="quality-btn" onclick="streamVideo('${media.id}', '1080p')">1080p</button>
-                </div>
                 <video controls class="video-player" id="videoPlayer">
-                    <source src="/api/v1/media/${media.id}/stream/720p" type="video/mp4">
+                    <source src="/api/v1/media/${media.id}/stream" type="video/mp4">
                     Your browser does not support the video tag.
                 </video>
             `;

@@ -232,41 +232,18 @@ func (h *MediaHandler) processVideoInBackground(mediaID string, file *multipart.
 	
 	log.Printf("🎬 Converting to optimal MP4 format...")
 	
-	// Optimize FFmpeg settings for SPEED while maintaining good quality
-	preset := "ultrafast"  // Changed from medium/slow to ultrafast
-	crf := "28"           // Changed from 18-22 to 28 (faster, still good quality)
-	
-	// For very large files, use even lower quality for speed
-	if file.Size > 200*1024*1024 { // 200MB
-		preset = "ultrafast"
-		crf = "35" // Lower quality but very fast
-		log.Printf("📊 Very large file detected, using maximum speed settings")
-	} else if file.Size > 100*1024*1024 { // 100MB
-		preset = "ultrafast"
-		crf = "30" // Good quality, very fast
-		log.Printf("📊 Large file detected (%d MB), using ultrafast preset for speed", file.Size/(1024*1024))
-	} else if file.Size > 50*1024*1024 { // 50MB
-		preset = "veryfast"
-		crf = "28" // Good quality, fast
-		log.Printf("📊 Medium file detected (%d MB), using veryfast preset", file.Size/(1024*1024))
-	} else {
-		preset = "fast"
-		crf = "26" // Good quality, reasonable speed
-		log.Printf("📊 Small file detected (%d MB), using fast preset", file.Size/(1024*1024))
-	}
-	
-	// Optimized FFmpeg command for speed
+	// Optimized FFmpeg command for best quality only
 	cmd := exec.Command("ffmpeg",
 		"-i", tempInputPath,
 		"-c:v", "libx264",           // H.264 video codec
-		"-preset", preset,           // Use ultrafast/veryfast for speed
-		"-crf", crf,                 // Higher CRF = faster encoding
+		"-preset", "slow",           // Best quality preset
+		"-crf", "18",                // High quality (visually lossless)
 		"-c:a", "aac",               // AAC audio codec
-		"-b:a", "128k",              // Reduced audio bitrate for speed
-		"-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=fast_bilinear", // Faster scaling
+		"-b:a", "192k",              // High audio bitrate
+		"-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos:force_original_aspect_ratio=decrease", // Best scaling
 		"-movflags", "+faststart",   // Optimize for web streaming
-		"-profile:v", "baseline",    // Baseline profile for faster encoding
-		"-level", "3.1",             // Lower level for faster encoding
+		"-profile:v", "high",        // High profile for best compatibility
+		"-level", "4.1",             // H.264 level 4.1
 		"-pix_fmt", "yuv420p",       // Standard pixel format
 		"-threads", "0",             // Use all available CPU threads
 		"-f", "mp4",                 // Force MP4 format
