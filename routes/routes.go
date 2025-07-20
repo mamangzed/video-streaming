@@ -45,6 +45,9 @@ func SetupRoutes(s3Service *services.S3Service, videoService *services.VideoServ
 		// Media upload
 		api.POST("/upload", mediaHandler.UploadMedia)
 		
+		// Direct upload without video optimization
+		api.POST("/upload-direct", mediaHandler.UploadMediaDirect)
+		
 		// Local upload (for testing without S3)
 		api.POST("/upload-local", mediaHandler.UploadMediaLocal)
 		

@@ -265,6 +265,98 @@ func (h *MediaHandler) processVideoInBackground(mediaID string, file *multipart.
 	return nil
 }
 
+// UploadMediaDirect handles file upload to S3 without video optimization
+func (h *MediaHandler) UploadMediaDirect(c *gin.Context) {
+	log.Println("📤 Starting direct S3 file upload (no optimization)...")
+	
+	// Get uploaded file
+	file, err := c.FormFile("file")
+	if err != nil {
+		log.Printf("❌ No file uploaded: %v", err)
+		c.JSON(http.StatusBadRequest, models.UploadResponse{
+			Success: false,
+			Message: "No file uploaded",
+		})
+		return
+	}
+
+	log.Printf("📁 File received: %s, Size: %d bytes, Type: %s", 
+		file.Filename, file.Size, file.Header.Get("Content-Type"))
+
+	// Validate file size
+	if file.Size > config.AppConfig.MaxFileSize {
+		log.Printf("❌ File too large: %d > %d", file.Size, config.AppConfig.MaxFileSize)
+		c.JSON(http.StatusBadRequest, models.UploadResponse{
+			Success: false,
+			Message: fmt.Sprintf("File size exceeds maximum allowed size of %d bytes", config.AppConfig.MaxFileSize),
+		})
+		return
+	}
+
+	// Validate file type
+	contentType := file.Header.Get("Content-Type")
+	mediaType, err := h.validateFileType(contentType, file.Filename)
+	if err != nil {
+		log.Printf("❌ Invalid file type: %v", err)
+		c.JSON(http.StatusBadRequest, models.UploadResponse{
+			Success: false,
+			Message: err.Error(),
+		})
+		return
+	}
+
+	log.Printf("✅ File validation passed: %s", mediaType)
+
+	// Generate unique ID for media
+	mediaID := uuid.New().String()
+	log.Printf("🆔 Generated media ID: %s", mediaID)
+
+	// Check if S3 service is available
+	if h.s3Service == nil {
+		log.Printf("❌ S3 service not available")
+		c.JSON(http.StatusServiceUnavailable, models.UploadResponse{
+			Success: false,
+			Message: "S3 service not available",
+		})
+		return
+	}
+
+	// Upload directly to S3 without any processing
+	key := fmt.Sprintf("media/%s/%s", mediaID, file.Filename)
+	log.Printf("☁️ Uploading directly to S3: %s", key)
+	
+	uploadedURL, err := h.s3Service.UploadFile(file, key)
+	if err != nil {
+		log.Printf("❌ S3 upload failed: %v", err)
+		c.JSON(http.StatusInternalServerError, models.UploadResponse{
+			Success: false,
+			Message: "Failed to upload file to S3",
+		})
+		return
+	}
+	
+	// Create media object
+	media := &models.Media{
+		ID:           mediaID,
+		Filename:     file.Filename,
+		OriginalName: file.Filename,
+		MediaType:    mediaType,
+		MimeType:     contentType,
+		Size:         file.Size,
+		URL:          uploadedURL,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+	}
+	
+	log.Printf("✅ Direct upload completed successfully: %s", media.URL)
+	
+	c.JSON(http.StatusOK, models.UploadResponse{
+		Success: true,
+		Message: "File uploaded successfully (no optimization)",
+		Media:   media,
+	})
+}
+
 // GetProcessingProgress returns the progress of video processing
 func (h *MediaHandler) GetProcessingProgress(c *gin.Context) {
 	mediaID := c.Param("id")

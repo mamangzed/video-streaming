@@ -261,7 +261,8 @@
             <input type="file" id="fileInput" accept="image/*,video/*">
         </div>
 
-        <button class="btn" id="uploadBtn" disabled>Upload File</button>
+        <button class="btn" id="uploadBtn" disabled>Upload File (with optimization)</button>
+        <button class="btn" id="uploadDirectBtn" disabled style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">Upload Direct (no optimization)</button>
         
         <div class="progress" id="progress">
             <div class="progress-bar" id="progressBar"></div>
@@ -288,6 +289,7 @@
         const uploadArea = document.getElementById('uploadArea');
         const fileInput = document.getElementById('fileInput');
         const uploadBtn = document.getElementById('uploadBtn');
+        const uploadDirectBtn = document.getElementById('uploadDirectBtn');
         const progress = document.getElementById('progress');
         const progressBar = document.getElementById('progressBar');
         const progressText = document.getElementById('progressText');
@@ -332,6 +334,7 @@
         function handleFileSelect(file) {
             selectedFile = file;
             uploadBtn.disabled = false;
+            uploadDirectBtn.disabled = false;
             
             // Update upload area text
             const uploadText = uploadArea.querySelector('.upload-text');
@@ -366,12 +369,14 @@
             }
         }
 
-        uploadBtn.addEventListener('click', uploadFile);
+        uploadBtn.addEventListener('click', () => uploadFile('/api/v1/upload'));
+        uploadDirectBtn.addEventListener('click', () => uploadFile('/api/v1/upload-direct'));
 
-        async function uploadFile() {
+        async function uploadFile(endpoint = '/api/v1/upload') {
             if (!selectedFile) return;
 
             uploadBtn.disabled = true;
+            uploadDirectBtn.disabled = true;
             progress.style.display = 'block';
             progressText.style.display = 'block';
             result.style.display = 'none';
@@ -379,13 +384,13 @@
 
             // Reset progress
             progressBar.style.width = '0%';
-            progressText.textContent = 'Uploading file...';
+            progressText.textContent = endpoint === '/api/v1/upload-direct' ? 'Uploading file directly (no optimization)...' : 'Uploading file...';
 
             const formData = new FormData();
             formData.append('file', selectedFile);
 
             try {
-                const response = await fetch('/api/v1/upload', {
+                const response = await fetch(endpoint, {
                     method: 'POST',
                     body: formData
                 });
@@ -410,6 +415,7 @@
                 showResult({ message: 'Upload failed: ' + error.message }, 'error');
             } finally {
                 uploadBtn.disabled = false;
+                uploadDirectBtn.disabled = false;
                 progress.style.display = 'none';
                 progressText.style.display = 'none';
             }
