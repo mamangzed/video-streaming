@@ -185,30 +185,40 @@ func (h *MediaHandler) processVideoInBackground(mediaID string, file *multipart.
 	
 	log.Printf("🎬 Converting to optimal MP4 format...")
 	
-	// Optimize FFmpeg settings for large files
-	// Use faster preset for large files to reduce processing time
-	preset := "fast"
-	crf := "28" // Higher CRF = smaller file, faster processing
+	// Optimize FFmpeg settings for better quality
+	// Use balanced preset for good quality and reasonable processing time
+	preset := "medium"
+	crf := "20" // Lower CRF = better quality (20 is high quality)
 	
-	// For very large files (>100MB), use even faster settings
+	// For large files, use faster preset but maintain good quality
 	if file.Size > 100*1024*1024 { // 100MB
-		preset = "ultrafast"
-		crf = "30"
-		log.Printf("📊 Large file detected (%d MB), using ultrafast preset", file.Size/(1024*1024))
+		preset = "fast"
+		crf = "22" // Still good quality
+		log.Printf("📊 Large file detected (%d MB), using fast preset with good quality", file.Size/(1024*1024))
+	} else if file.Size > 50*1024*1024 { // 50MB
+		preset = "medium"
+		crf = "20" // High quality for medium files
+		log.Printf("📊 Medium file detected (%d MB), using medium preset with high quality", file.Size/(1024*1024))
+	} else {
+		preset = "slow"
+		crf = "18" // Very high quality for small files
+		log.Printf("📊 Small file detected (%d MB), using slow preset with very high quality", file.Size/(1024*1024))
 	}
 	
 	cmd := exec.Command("ffmpeg",
 		"-i", tempInputPath,
-		"-vcodec", "libx264",        // H.264 video codec
-		"-acodec", "aac",            // AAC audio codec
-		"-strict", "-2",             // Allow experimental codecs
-		"-b:v", "2M",                // Reduced bitrate for faster processing
-		"-b:a", "128k",              // Reduced audio bitrate
-		"-f", "mp4",                 // Force MP4 format
+		"-c:v", "libx264",           // H.264 video codec
+		"-preset", preset,           // Use preset based on file size
+		"-crf", crf,                 // CRF based on file size
+		"-c:a", "aac",               // AAC audio codec
+		"-b:a", "192k",              // Higher audio bitrate for better quality
+		"-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos", // Better scaling with aspect ratio preservation
 		"-movflags", "+faststart",   // Optimize for web streaming
-		"-preset", preset,           // Use faster preset for large files
-		"-crf", crf,                 // Higher CRF for faster processing
+		"-profile:v", "high",        // High profile for better compatibility
+		"-level", "4.1",             // H.264 level 4.1 for better compatibility
+		"-pix_fmt", "yuv420p",       // Standard pixel format
 		"-threads", "0",             // Use all available CPU threads
+		"-f", "mp4",                 // Force MP4 format
 		"-y",                        // Overwrite output file
 		outputPath,
 	)

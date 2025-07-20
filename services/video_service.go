@@ -39,14 +39,14 @@ type VideoQualityConfig struct {
 }
 
 var VideoQualities = []VideoQualityConfig{
-	{Quality: models.Quality144p, Width: 256, Height: 144, Bitrate: "100k"},
-	{Quality: models.Quality240p, Width: 426, Height: 240, Bitrate: "200k"},
-	{Quality: models.Quality360p, Width: 640, Height: 360, Bitrate: "500k"},
-	{Quality: models.Quality480p, Width: 854, Height: 480, Bitrate: "800k"},
-	{Quality: models.Quality720p, Width: 1280, Height: 720, Bitrate: "1500k"},
-	{Quality: models.Quality1080p, Width: 1920, Height: 1080, Bitrate: "3000k"},
-	{Quality: models.Quality1440p, Width: 2560, Height: 1440, Bitrate: "6000k"},
-	{Quality: models.Quality2160p, Width: 3840, Height: 2160, Bitrate: "12000k"},
+	{Quality: models.Quality144p, Width: 256, Height: 144, Bitrate: "200k"},
+	{Quality: models.Quality240p, Width: 426, Height: 240, Bitrate: "400k"},
+	{Quality: models.Quality360p, Width: 640, Height: 360, Bitrate: "800k"},
+	{Quality: models.Quality480p, Width: 854, Height: 480, Bitrate: "1200k"},
+	{Quality: models.Quality720p, Width: 1280, Height: 720, Bitrate: "2500k"},
+	{Quality: models.Quality1080p, Width: 1920, Height: 1080, Bitrate: "5000k"},
+	{Quality: models.Quality1440p, Width: 2560, Height: 1440, Bitrate: "8000k"},
+	{Quality: models.Quality2160p, Width: 3840, Height: 2160, Bitrate: "15000k"},
 }
 
 func (v *VideoService) ProcessVideo(inputPath, mediaID string) ([]models.VideoVariant, error) {
@@ -88,17 +88,21 @@ func (v *VideoService) createVideoVariant(inputPath, mediaID string, quality Vid
 	outputFilename := fmt.Sprintf("%s_%s.mp4", mediaID, quality.Quality)
 	outputPath := filepath.Join(tempDir, outputFilename)
 
-	// FFmpeg command for video transcoding
+	// FFmpeg command for high-quality video transcoding
 	cmd := exec.Command(v.ffmpegPath,
 		"-i", inputPath,
 		"-c:v", "libx264",
-		"-preset", "medium",
-		"-crf", "23",
+		"-preset", "slow",           // Better quality than medium
+		"-crf", "18",               // Lower CRF = better quality (18 is visually lossless)
 		"-c:a", "aac",
-		"-b:a", "128k",
-		"-vf", fmt.Sprintf("scale=%d:%d", quality.Width, quality.Height),
-		"-b:v", quality.Bitrate,
+		"-b:a", "192k",             // Higher audio bitrate
+		"-vf", fmt.Sprintf("scale=%d:%d:flags=lanczos", quality.Width, quality.Height), // Better scaling algorithm
+		"-maxrate", fmt.Sprintf("%dk", parseBitrate(quality.Bitrate)/1000), // Max bitrate
+		"-bufsize", fmt.Sprintf("%dk", parseBitrate(quality.Bitrate)/500),  // Buffer size
 		"-movflags", "+faststart",
+		"-profile:v", "high",       // High profile for better compatibility
+		"-level", "4.1",            // H.264 level 4.1 for better compatibility
+		"-pix_fmt", "yuv420p",      // Standard pixel format
 		"-y", // Overwrite output file
 		outputPath,
 	)
@@ -318,11 +322,11 @@ func (v *VideoService) ProcessVideoForStreaming(media *models.Media) error {
 	
 	log.Printf("📥 Downloaded video to: %s", localVideoPath)
 	
-	// Process video with different qualities
+	// Process video with different qualities (improved bitrates)
 	qualities := []VideoQualityConfig{
 		{Quality: models.Quality360p, Width: 640, Height: 360, Bitrate: "800k"},
-		{Quality: models.Quality720p, Width: 1280, Height: 720, Bitrate: "1500k"},
-		{Quality: models.Quality1080p, Width: 1920, Height: 1080, Bitrate: "3000k"},
+		{Quality: models.Quality720p, Width: 1280, Height: 720, Bitrate: "2500k"},
+		{Quality: models.Quality1080p, Width: 1920, Height: 1080, Bitrate: "5000k"},
 	}
 	
 	var variants []models.VideoVariant
@@ -384,19 +388,22 @@ func (v *VideoService) createOptimizedVideoVariant(inputPath, mediaID string, qu
 	
 	log.Printf("🎬 Creating %s variant: %s", quality.Quality, outputPath)
 	
-	// FFmpeg command for optimal video processing
-	// Using H.264 for video and AAC for audio as recommended
+	// FFmpeg command for high-quality video processing
+	// Using optimized settings for better quality
 	cmd := exec.Command(v.ffmpegPath,
 		"-i", inputPath,
-		"-vcodec", "libx264",        // H.264 video codec
-		"-acodec", "aac",            // AAC audio codec
-		"-strict", "-2",             // Allow experimental codecs
-		"-b:v", quality.Bitrate,     // Video bitrate
-		"-b:a", "192k",              // Audio bitrate
-		"-vf", fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease", quality.Width, quality.Height), // Scale with aspect ratio preservation
-		"-preset", "medium",         // Encoding preset (balance between speed and quality)
-		"-crf", "23",                // Constant Rate Factor (quality setting)
+		"-c:v", "libx264",           // H.264 video codec
+		"-preset", "slow",           // Better quality than medium
+		"-crf", "18",                // Lower CRF = better quality (18 is visually lossless)
+		"-c:a", "aac",               // AAC audio codec
+		"-b:a", "192k",              // Higher audio bitrate
+		"-vf", fmt.Sprintf("scale=%d:%d:flags=lanczos:force_original_aspect_ratio=decrease", quality.Width, quality.Height), // Better scaling with aspect ratio preservation
+		"-maxrate", fmt.Sprintf("%dk", parseBitrate(quality.Bitrate)/1000), // Max bitrate
+		"-bufsize", fmt.Sprintf("%dk", parseBitrate(quality.Bitrate)/500),  // Buffer size
 		"-movflags", "+faststart",   // Optimize for web streaming
+		"-profile:v", "high",        // High profile for better compatibility
+		"-level", "4.1",             // H.264 level 4.1 for better compatibility
+		"-pix_fmt", "yuv420p",       // Standard pixel format
 		"-f", "mp4",                 // Force MP4 format
 		"-y",                        // Overwrite output file
 		outputPath,
