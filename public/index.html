@@ -129,6 +129,30 @@
             display: none;
         }
 
+        .upload-stats {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            font-size: 0.85em;
+            color: #666;
+            display: none;
+        }
+
+        .upload-speed {
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .upload-eta {
+            color: #28a745;
+            font-weight: bold;
+        }
+
+        .upload-size {
+            color: #666;
+        }
+
         .processing-status {
             background: #e3f2fd;
             border: 1px solid #2196f3;
@@ -270,6 +294,11 @@
         </div>
 
         <div class="progress-text" id="progressText"></div>
+        <div class="upload-stats" id="uploadStats">
+            <span class="upload-size" id="uploadSize">0 MB / 0 MB</span>
+            <span class="upload-speed" id="uploadSpeed">0 MB/s</span>
+            <span class="upload-eta" id="uploadEta">--:--</span>
+        </div>
 
         <div class="processing-status" id="processingStatus">
             <h4>🎬 Video Processing</h4>
@@ -295,6 +324,10 @@
         const progress = document.getElementById('progress');
         const progressBar = document.getElementById('progressBar');
         const progressText = document.getElementById('progressText');
+        const uploadStats = document.getElementById('uploadStats');
+        const uploadSize = document.getElementById('uploadSize');
+        const uploadSpeed = document.getElementById('uploadSpeed');
+        const uploadEta = document.getElementById('uploadEta');
         const processingStatus = document.getElementById('processingStatus');
         const statusText = document.getElementById('statusText');
         const processingProgressBar = document.getElementById('processingProgressBar');
@@ -305,6 +338,9 @@
         let selectedFile = null;
         let processingInterval = null;
         let startTime = null;
+        let uploadStartTime = null;
+        let lastUploadedBytes = 0;
+        let uploadSpeedInterval = null;
 
         // Drag and drop functionality
         uploadArea.addEventListener('click', () => fileInput.click());
@@ -384,11 +420,15 @@
             uploadLargeBtn.disabled = true;
             progress.style.display = 'block';
             progressText.style.display = 'block';
+            uploadStats.style.display = 'flex';
             result.style.display = 'none';
             processingStatus.style.display = 'none';
 
-            // Reset progress
+            // Reset progress and stats
             progressBar.style.width = '0%';
+            uploadStartTime = Date.now();
+            lastUploadedBytes = 0;
+            
             let uploadMessage = 'Uploading file...';
             if (endpoint === '/api/v1/upload-direct') {
                 uploadMessage = 'Uploading file directly (no optimization)...';
@@ -397,31 +437,93 @@
             }
             progressText.textContent = uploadMessage;
 
+            // Start upload speed tracking
+            startUploadSpeedTracking();
+
             const formData = new FormData();
             formData.append('file', selectedFile);
 
             try {
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    if (data.media.media_type === 'video' && !data.media.url) {
-                        // Video is being processed in background
-                        showVideoProcessing(data.media.id);
-                    } else {
-                        // File uploaded successfully
-                        showResult(data, 'success');
-                        if (data.media.media_type === 'video') {
-                            showVideoInfo(data.media);
+                // Use XMLHttpRequest for progress tracking
+                const xhr = new XMLHttpRequest();
+                
+                // Track upload progress
+                xhr.upload.addEventListener('progress', (e) => {
+                    if (e.lengthComputable) {
+                        const percentComplete = (e.loaded / e.total) * 100;
+                        progressBar.style.width = percentComplete + '%';
+                        
+                        // Update upload stats
+                        const uploadedBytes = e.loaded;
+                        const totalBytes = e.total;
+                        const now = Date.now();
+                        const elapsed = (now - uploadStartTime) / 1000;
+                        
+                        if (elapsed > 0) {
+                            const speed = uploadedBytes / elapsed;
+                            const speedMBps = (speed / (1024 * 1024)).toFixed(2);
+                            
+                            const remainingBytes = totalBytes - uploadedBytes;
+                            const etaSeconds = remainingBytes / speed;
+                            const etaMinutes = Math.floor(etaSeconds / 60);
+                            const etaSecs = Math.floor(etaSeconds % 60);
+                            
+                            uploadSize.textContent = `${formatFileSize(uploadedBytes)} / ${formatFileSize(totalBytes)}`;
+                            uploadSpeed.textContent = `${speedMBps} MB/s`;
+                            uploadEta.textContent = `${etaMinutes.toString().padStart(2, '0')}:${etaSecs.toString().padStart(2, '0')}`;
                         }
                     }
-                } else {
-                    showResult(data, 'error');
-                }
+                });
+                
+                // Handle response
+                xhr.addEventListener('load', () => {
+                    if (xhr.status === 200) {
+                        try {
+                            const data = JSON.parse(xhr.responseText);
+                            
+                            // Calculate final upload stats
+                            const uploadEndTime = Date.now();
+                            const totalUploadTime = (uploadEndTime - uploadStartTime) / 1000;
+                            const finalSpeed = (selectedFile.size / totalUploadTime) / (1024 * 1024);
+                            
+                            // Show final upload stats
+                            uploadSpeed.textContent = `${finalSpeed.toFixed(2)} MB/s (final)`;
+                            uploadEta.textContent = `Completed in ${Math.floor(totalUploadTime)}s`;
+                            
+                            if (data.success) {
+                                if (data.media.media_type === 'video' && !data.media.url) {
+                                    // Video is being processed in background
+                                    showVideoProcessing(data.media.id);
+                                } else {
+                                    // File uploaded successfully
+                                    showResult(data, 'success');
+                                    if (data.media.media_type === 'video') {
+                                        showVideoInfo(data.media);
+                                    }
+                                }
+                            } else {
+                                showResult(data, 'error');
+                            }
+                        } catch (error) {
+                            showResult({ message: 'Invalid response format' }, 'error');
+                        }
+                    } else {
+                        showResult({ message: `Upload failed with status: ${xhr.status}` }, 'error');
+                    }
+                });
+                
+                xhr.addEventListener('error', () => {
+                    showResult({ message: 'Upload failed: Network error' }, 'error');
+                });
+                
+                xhr.addEventListener('abort', () => {
+                    showResult({ message: 'Upload was cancelled' }, 'error');
+                });
+                
+                // Send request
+                xhr.open('POST', endpoint);
+                xhr.send(formData);
+                
             } catch (error) {
                 showResult({ message: 'Upload failed: ' + error.message }, 'error');
             } finally {
@@ -430,7 +532,47 @@
                 uploadLargeBtn.disabled = false;
                 progress.style.display = 'none';
                 progressText.style.display = 'none';
+                uploadStats.style.display = 'none';
+                stopUploadSpeedTracking();
             }
+        }
+
+        function startUploadSpeedTracking() {
+            uploadSpeedInterval = setInterval(() => {
+                updateUploadStats();
+            }, 1000); // Update every second
+        }
+
+        function stopUploadSpeedTracking() {
+            if (uploadSpeedInterval) {
+                clearInterval(uploadSpeedInterval);
+                uploadSpeedInterval = null;
+            }
+        }
+
+        function updateUploadStats() {
+            if (!uploadStartTime || !selectedFile) return;
+
+            const now = Date.now();
+            const elapsed = (now - uploadStartTime) / 1000; // seconds
+            const uploadedBytes = (selectedFile.size * (progressBar.offsetWidth / progressBar.parentElement.offsetWidth));
+            
+            // Calculate speed
+            const speed = uploadedBytes / elapsed; // bytes per second
+            const speedMBps = (speed / (1024 * 1024)).toFixed(2);
+            
+            // Calculate ETA
+            const remainingBytes = selectedFile.size - uploadedBytes;
+            const etaSeconds = remainingBytes / speed;
+            const etaMinutes = Math.floor(etaSeconds / 60);
+            const etaSecs = Math.floor(etaSeconds % 60);
+            
+            // Update UI
+            uploadSize.textContent = `${formatFileSize(uploadedBytes)} / ${formatFileSize(selectedFile.size)}`;
+            uploadSpeed.textContent = `${speedMBps} MB/s`;
+            uploadEta.textContent = `${etaMinutes.toString().padStart(2, '0')}:${etaSecs.toString().padStart(2, '0')}`;
+            
+            lastUploadedBytes = uploadedBytes;
         }
 
         function showVideoProcessing(mediaId) {
@@ -514,6 +656,11 @@
             result.style.display = 'block';
             
             if (type === 'success') {
+                // Calculate upload stats
+                const uploadEndTime = Date.now();
+                const totalUploadTime = (uploadEndTime - uploadStartTime) / 1000;
+                const finalSpeed = (selectedFile.size / totalUploadTime) / (1024 * 1024);
+                
                 result.innerHTML = `
                     <h3>✅ Upload Successful!</h3>
                     <p><strong>Message:</strong> ${data.message}</p>
@@ -523,6 +670,8 @@
                         <p><strong>Name:</strong> ${data.media.original_name}</p>
                         <p><strong>Type:</strong> ${data.media.media_type}</p>
                         <p><strong>Size:</strong> ${formatFileSize(data.media.size)}</p>
+                        <p><strong>Upload Speed:</strong> <span style="color: #667eea; font-weight: bold;">${finalSpeed.toFixed(2)} MB/s</span></p>
+                        <p><strong>Upload Time:</strong> <span style="color: #28a745; font-weight: bold;">${totalUploadTime.toFixed(1)} seconds</span></p>
                         ${data.media.url ? '<p><strong>URL:</strong> <a href="' + data.media.url + '" target="_blank">View File</a></p>' : ''}
                     </div>
                 `;

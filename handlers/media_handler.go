@@ -149,6 +149,10 @@ func (h *MediaHandler) UploadMedia(c *gin.Context) {
 		
 		log.Printf("✅ Upload completed successfully: %s", media.URL)
 		
+		// Add upload information headers
+		c.Header("X-Upload-Size", fmt.Sprintf("%d", file.Size))
+		c.Header("X-Upload-Time", time.Now().Format(time.RFC3339))
+		
 		c.JSON(http.StatusOK, models.UploadResponse{
 			Success: true,
 			Message: "File uploaded successfully",
