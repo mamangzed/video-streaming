@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -139,9 +140,25 @@ func (h *MediaHandler) UploadMedia(c *gin.Context) {
 			outputPath,
 		)
 		
+		// Set a timeout for FFmpeg processing (5 minutes)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		cmd = exec.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
+		
+		log.Printf("⏱️ Starting FFmpeg processing (timeout: 5 minutes)...")
+		log.Printf("📊 Input file size: %d bytes", file.Size)
+		
 		// Capture FFmpeg output for debugging
 		output, err := cmd.CombinedOutput()
 		if err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				log.Printf("❌ FFmpeg processing timed out after 5 minutes")
+				c.JSON(http.StatusRequestTimeout, models.UploadResponse{
+					Success: false,
+					Message: "Video processing timed out. Please try with a smaller video file.",
+				})
+				return
+			}
 			log.Printf("❌ FFmpeg error output: %s", string(output))
 			c.JSON(http.StatusInternalServerError, models.UploadResponse{
 				Success: false,
@@ -149,6 +166,8 @@ func (h *MediaHandler) UploadMedia(c *gin.Context) {
 			})
 			return
 		}
+		
+		log.Printf("✅ FFmpeg processing completed successfully")
 		
 		log.Printf("✅ Video processing completed")
 		
